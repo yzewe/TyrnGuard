@@ -1,7 +1,7 @@
 <div align="center">
 
 # TyrnGuard
-**Advanced (WireGuard over TURN Tunnel Client)[https://github.com/amurcanov/proxy-turn-vk-android]**
+**Advanced [WireGuard over TURN Tunnel Client](https://github.com/amurcanov/proxy-turn-vk-android)**
 
 ---
 
