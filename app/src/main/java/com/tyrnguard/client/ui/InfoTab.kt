@@ -109,17 +109,25 @@ fun MainSettingsMenu(onNavigate: (String) -> Unit) {
     val currentPeer by settingsStore.peer.collectAsStateWithLifecycle("")
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+        SettingsHeroPanel(
+            icon = Icons.Default.Tune,
+            title = "Настройки TyrnGuard",
+            subtitle = "Сеть, ключи, капча и внешний вид собраны в короткие понятные разделы.",
+            stats = listOf(
+                "Сервер" to currentPeer.ifBlank { "не выбран" },
+                "Версия" to BuildConfig.VERSION_NAME
+            )
+        )
         
-        MenuCategoryItem("Сеть", "Ручные порты, MTU, DNS, SNI", Icons.Default.Language) { onNavigate("network") }
-        MenuCategoryItem("Производительность", "Ключи, Потоки, Капча (RJS)", Icons.Default.Speed) { onNavigate("performance") }
-        MenuCategoryItem("Интерфейс", "Темы, Цвета, Отклик", Icons.Default.Palette) { onNavigate("interface") }
+        MenuCategoryItem("Сеть", "Локальный порт, MTU, DNS и SNI домен", Icons.Default.Language) { onNavigate("network") }
+        MenuCategoryItem("Производительность", "VK-хеши, потоки и режим капчи", Icons.Default.Speed) { onNavigate("performance") }
+        MenuCategoryItem("Интерфейс", "Тема, палитра и динамические цвета", Icons.Default.Palette) { onNavigate("interface") }
         
         CategoryCard("Синхронизация", Icons.Default.Share) {
-            Text("Импорт запустит настройку по ссылке из буфера обмена.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
+            Text("Импорт берёт конфигурацию из буфера обмена, экспорт отправляет выбранный сервер ссылкой.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
-                    modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp),
                     onClick = {
                         val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val text = cb.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
@@ -136,7 +144,7 @@ fun MainSettingsMenu(onNavigate: (String) -> Unit) {
                 }
 
                 FilledTonalButton(
-                    modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp),
                     onClick = {
                         scope.launch {
                             val serversJson = settingsStore.savedServersJson.first()
@@ -191,27 +199,56 @@ fun NetworkSettings(onBack: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("Сеть", onBack)
+        SettingsHeader("Сеть", onBack, "Порты, DNS и домен для рукопожатия", Icons.Default.Language)
+
+        SettingsHeroPanel(
+            icon = Icons.Default.TravelExplore,
+            title = "Сетевой профиль",
+            subtitle = "Здесь меняются параметры, которые напрямую влияют на подключение.",
+            stats = listOf(
+                "Порт" to listenPort.toString(),
+                "SNI" to sniInput.ifBlank { "не задан" }
+            )
+        )
         
         CategoryCard("Подключение", Icons.Default.SettingsInputComponent) {
-            OutlinedTextField(value = listenInput, onValueChange = { listenInput = it.filter { c -> c.isDigit() }.take(5); saveListenPort() }, label = { Text("Локальный порт VPN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
+            SettingTextField(
+                value = listenInput,
+                onValueChange = {
+                    listenInput = it.filter { c -> c.isDigit() }.take(5)
+                    saveListenPort()
+                },
+                label = "Локальный порт VPN",
+                placeholder = "9000",
+                leadingIcon = Icons.Default.Lan,
+                supportingText = "Порт, на котором приложение слушает локальный VPN-трафик.",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
             Spacer(Modifier.height(12.dp))
-            Text("SNI домен", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
+            SettingTextField(
                 value = sniInput,
                 onValueChange = { input -> saveSniValue(input) },
-                placeholder = { Text("google.com") },
-                supportingText = { Text("Опционально, если сеть требует домен для рукопожатия") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true
+                label = "SNI домен",
+                placeholder = "google.com",
+                leadingIcon = Icons.Default.Public,
+                supportingText = "Опционально: домен для TLS ClientHello, если сеть требует SNI.",
+                trailingContent = if (sniInput.isNotBlank()) {
+                    {
+                        IconButton(onClick = { saveSniValue("") }) {
+                            Icon(Icons.Default.Close, contentDescription = "Очистить SNI")
+                        }
+                    }
+                } else null
             )
         }
 
-        CategoryCard("Расширенные", Icons.AutoMirrored.Filled.CompareArrows) {
+        CategoryCard("Пакеты", Icons.AutoMirrored.Filled.CompareArrows) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Размер пакета (MTU)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                Text(if (customMtu == 0) "Авто" else "$customMtu", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Размер пакета (MTU)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Авто обычно стабильнее, ручной MTU полезен для сложных сетей.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                ValuePill("Сейчас", if (customMtu == 0) "Авто" else "$customMtu")
             }
             Slider(
                 value = if (customMtu == 0) 1279f else customMtu.toFloat(),
@@ -222,9 +259,12 @@ fun NetworkSettings(onBack: () -> Unit) {
                 onValueChangeFinished = { scope.launch { TunnelManager.reloadWireGuard() } }, 
                 valueRange = 1279f..1500f
             )
+            Text("Значение ниже 1280 возвращает автоматический режим.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        CategoryCard("DNS Сервер", Icons.Default.Dns) {
+        CategoryCard("DNS", Icons.Default.Dns) {
+            Text("Выберите резолвер для туннеля.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(12.dp))
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 listOf("default" to "Авто", "adguard" to "AdGuard", "cloudflare" to "1.1.1.1", "custom" to "Свой").forEachIndexed { i, (v, l) ->
                     SegmentedButton(
@@ -234,12 +274,15 @@ fun NetworkSettings(onBack: () -> Unit) {
                 }
             }
             AnimatedVisibility(visible = dnsType == "custom") {
-                OutlinedTextField(
+                SettingTextField(
                     value = customDnsIp,
                     onValueChange = { scope.launch { settingsStore.saveCustomDnsIp(it.trim()) } },
-                    label = { Text("IP DNS сервера") },
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                    shape = RoundedCornerShape(16.dp)
+                    label = "IP DNS сервера",
+                    placeholder = "1.1.1.1",
+                    leadingIcon = Icons.Default.Dns,
+                    supportingText = "IPv4-адрес DNS, который попадёт в конфиг туннеля.",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.padding(top = 12.dp)
                 )
             }
         }
@@ -287,10 +330,20 @@ fun PerformanceSettings(onBack: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("Производительность", onBack)
+        SettingsHeader("Производительность", onBack, "Хеши, потоки и режим решения капчи", Icons.Default.Speed)
+
+        SettingsHeroPanel(
+            icon = Icons.Default.Bolt,
+            title = "Баланс скорости",
+            subtitle = "Меньше лишних потоков — меньше расход батареи и ниже шанс словить капчу.",
+            stats = listOf(
+                "Потоки" to workersCount.toString(),
+                "Капча" to if (captchaMode == "wv") "WebView" else "RJS"
+            )
+        )
         
         CategoryCard("VK Хэши (Ключи)", Icons.Default.VpnKey) {
-            Text("Больше хешей — выше лимит потоков и лучшее распределение нагрузки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Можно вставлять чистый хеш или ссылку vk.com/call/join — приложение оставит только нужную часть.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
 
             listOf(
@@ -299,11 +352,15 @@ fun PerformanceSettings(onBack: () -> Unit) {
                 Triple("Дополнительный 2", h3) { v: String -> h3 = stripVkUrlStatic(v); saveAll() }
             ).forEach { (label, value, onChange) ->
                 val isShort = value.isNotBlank() && value.length < 16
-                OutlinedTextField(
-                    value = value, onValueChange = onChange, label = { Text(label) },
+                SettingTextField(
+                    value = value,
+                    onValueChange = onChange,
+                    label = label,
+                    placeholder = "vk.com/call/join/...",
+                    leadingIcon = Icons.Default.Key,
                     isError = isShort,
-                    supportingText = if (isShort) { { Text("Хеш слишком короткий (мин. 16)", color = MaterialTheme.colorScheme.error) } } else null,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(16.dp)
+                    supportingText = if (isShort) "Хеш слишком короткий, нужно минимум 16 символов." else null,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
         }
@@ -313,9 +370,12 @@ fun PerformanceSettings(onBack: () -> Unit) {
             val maxWorkers = (filledHashCount * 32).toFloat()
             val currentW = workersCount.toFloat().coerceIn(12f, maxWorkers)
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Потоки обработки", fontWeight = FontWeight.Bold)
-                Text("${currentW.toInt()}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Потоки обработки", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Шаг 12 потоков, лимит зависит от количества валидных хешей.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                ValuePill("Активно", "${currentW.toInt()}")
             }
             Slider(
                 value = currentW,
@@ -329,11 +389,22 @@ fun PerformanceSettings(onBack: () -> Unit) {
                 },
                 valueRange = 12f..maxWorkers
             )
-            Text("Оптимально: 24-36. Больше — выше скорость, но риск блокировки IP.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf(12, 24, 36).forEach { preset ->
+                    val target = preset.coerceAtMost(maxWorkers.toInt())
+                    AssistChip(
+                        onClick = { saveAll(target) },
+                        label = { Text("$target") },
+                        leadingIcon = if (workersCount == target) { { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) } } else null,
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                }
+            }
+            Text("Обычно 24-36 хватает для скорости без лишнего расхода CPU.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         CategoryCard("Капча", Icons.Default.SmartToy) {
-            Text("Метод решения", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text("Метод решения", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = captchaMode == "wv", onClick = { scope.launch { settingsStore.saveCaptchaMode("wv") } }, label = { Text("WebView") }, shape = RoundedCornerShape(16.dp))
@@ -368,10 +439,28 @@ fun InterfaceSettings(onBack: () -> Unit) {
     val dynamicColor by settingsStore.useDynamicColor.collectAsStateWithLifecycle(false)
     val themePalette by settingsStore.themePalette.collectAsStateWithLifecycle("tyrn")
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("Интерфейс", onBack)
-        CategoryCard("Тема", Icons.Default.Palette) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SettingsHeader("Интерфейс", onBack, "Тема, палитра и цветовая адаптация", Icons.Default.Palette)
+
+        SettingsHeroPanel(
+            icon = Icons.Default.AutoAwesome,
+            title = "MD3 Expressive",
+            subtitle = "Без градиентов: чистые контейнеры, мягкий контраст и читаемые заголовки.",
+            stats = listOf(
+                "Тема" to when (themeMode) {
+                    "light" -> "Светлая"
+                    "dark" -> "Темная"
+                    "amoled" -> "Amoled"
+                    else -> "Авто"
+                },
+                "Палитра" to themePalette
+            )
+        )
+
+        CategoryCard("Внешний вид", Icons.Default.Palette) {
             val themes = listOf("system" to "Авто", "light" to "Светлая", "dark" to "Темная", "amoled" to "Amoled")
+            Text("Режим темы", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 themes.forEachIndexed { i, (v, l) ->
                     SegmentedButton(
@@ -396,6 +485,7 @@ fun InterfaceSettings(onBack: () -> Unit) {
                 }
             }
         }
+        Spacer(Modifier.height(32.dp))
     }
 }
 
@@ -617,24 +707,116 @@ fun ImportantInfoDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
+private fun SettingsHeroPanel(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    stats: List<Pair<String, String>> = emptyList()
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = colors.primaryContainer,
+        contentColor = colors.onPrimaryContainer,
+        border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.18f)),
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = RoundedCornerShape(18.dp), color = colors.primary.copy(alpha = 0.14f)) {
+                    Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = null, tint = colors.onPrimaryContainer, modifier = Modifier.size(24.dp))
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = colors.onPrimaryContainer)
+                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = colors.onPrimaryContainer.copy(alpha = 0.78f), lineHeight = 20.sp)
+                }
+            }
+
+            if (stats.isNotEmpty()) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    stats.take(2).forEach { (label, value) ->
+                        ValuePill(label = label, value = value, modifier = Modifier.weight(1f), elevated = true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ValuePill(label: String, value: String, modifier: Modifier = Modifier, elevated: Boolean = false) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier.heightIn(min = 44.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = if (elevated) colors.surface.copy(alpha = 0.56f) else colors.secondaryContainer.copy(alpha = 0.72f),
+        contentColor = if (elevated) colors.onSurface else colors.onSecondaryContainer,
+        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.28f))
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = LocalContentColor.current.copy(alpha = 0.70f), maxLines = 1)
+            Text(value, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun SettingTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = null,
+    supportingText: String? = null,
+    trailingContent: (@Composable (() -> Unit))? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    isError: Boolean = false
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        placeholder = { Text(placeholder) },
+        leadingIcon = if (leadingIcon != null) {
+            { Icon(leadingIcon, contentDescription = null) }
+        } else null,
+        trailingIcon = trailingContent,
+        supportingText = if (supportingText != null) {
+            { Text(supportingText, color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
+        } else null,
+        isError = isError,
+        keyboardOptions = keyboardOptions,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        singleLine = true
+    )
+}
+
+@Composable
 fun MenuCategoryItem(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
-        shadowElevation = 2.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)),
+        tonalElevation = 1.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(50.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+            }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline)
@@ -643,10 +825,25 @@ fun MenuCategoryItem(title: String, subtitle: String, icon: ImageVector, onClick
 }
 
 @Composable
-fun SettingsHeader(title: String, onBack: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-        IconButton(onClick = onBack, modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-        Spacer(Modifier.width(16.dp)); Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+fun SettingsHeader(title: String, onBack: () -> Unit, subtitle: String? = null, icon: ImageVector? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        IconButton(onClick = onBack, modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (icon != null) {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.size(44.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                }
+            }
+        }
     }
 }
 
@@ -656,21 +853,20 @@ private fun CategoryCard(title: String, icon: ImageVector, content: @Composable 
         shape = RoundedCornerShape(26.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)),
         tonalElevation = 2.dp,
-        shadowElevation = 3.dp,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().animateContentSize()
     ) {
         Column(
-            modifier = Modifier.padding(22.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 20.dp)) {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(38.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 18.dp)) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(42.dp)) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                        Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(21.dp))
                     }
                 }
-                Spacer(Modifier.width(12.dp)); Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(Modifier.width(12.dp)); Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
             }
             content()
         }
