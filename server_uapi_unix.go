@@ -9,5 +9,11 @@ import (
 )
 
 func listenUAPI(ifaceName string) (net.Listener, error) {
-	return ipc.UAPIListen(ifaceName, nil)
+	file, err := ipc.UAPIOpen(ifaceName)
+	if err != nil {
+		return nil, err
+	}
+	listener, err := ipc.UAPIListen(ifaceName, file)
+	_ = file.Close()
+	return listener, err
 }
