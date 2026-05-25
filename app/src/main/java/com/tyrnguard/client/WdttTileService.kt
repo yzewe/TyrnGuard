@@ -21,7 +21,7 @@ class WdttTileService : TileService() {
     override fun onClick() {
         super.onClick()
         val tile = qsTile ?: return
-        
+
         if (TunnelManager.running.value) {
             tile.state = Tile.STATE_INACTIVE
             tile.updateTile()
@@ -29,23 +29,26 @@ class WdttTileService : TileService() {
         } else {
             tile.state = Tile.STATE_ACTIVE
             tile.updateTile()
-            
+
             scope.launch {
                 val store = SettingsStore(applicationContext)
                 val peer = store.peer.first()
                 val hashes = store.vkHashes.first()
-                
+                val serversJson = store.savedServersJson.first()
+
                 if (peer.isNotBlank() && hashes.isNotBlank()) {
                     val intent = Intent(applicationContext, TunnelService::class.java).apply {
                         action = "START"
-                        putExtra("peer", "$peer:56000")
+                        putExtra("peer", buildPeerWithSavedServerPort(peer, serversJson))
                         putExtra("vk_hashes", hashes)
+                        putExtra("secondary_vk_hash", store.secondaryVkHash.first())
                         putExtra("workers_per_hash", store.workersPerHash.first())
                         putExtra("port", store.listenPort.first())
+                        putExtra("sni", store.sni.first())
                         putExtra("protocol", store.protocol.first())
                         putExtra("captcha_mode", store.captchaMode.first())
-                        // ПАРОЛЬ ДОБАВЛЕН ТУТ
-                        putExtra("connection_password", store.connectionPassword.first())
+                        putExtra("captcha_solve_method", store.captchaSolveMethod.first())
+                        putExtra("connection_password", resolveSavedServerPassword(peer, serversJson, store.connectionPassword.first()))
                     }
                     if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
                 }

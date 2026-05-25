@@ -42,6 +42,7 @@ object TunnelManager {
     private var wrapAuthTimeoutCount = 0
     private var processStartedAtMs = 0L
     private var lastActiveAtMs = 0L
+    private var lastTurnIssueAtMs = 0L
     private var activeHashIndex = 0 // 0: primary, 1: secondary
     private var currentParams: TunnelParams? = null
     private var lastContext: Context? = null
@@ -124,6 +125,7 @@ object TunnelManager {
             wrapAuthTimeoutCount = 0
             processStartedAtMs = 0L
             lastActiveAtMs = 0L
+            lastTurnIssueAtMs = 0L
             lastTrafficBytes = 0L
             lastTrafficAtMs = 0L
             currentPingMs.value = 0L
@@ -208,6 +210,7 @@ object TunnelManager {
                 processStartedAtMs = System.currentTimeMillis()
                 wrapAuthTimeoutCount = 0
                 lastActiveAtMs = 0L
+                lastTurnIssueAtMs = 0L
                 running.value = true
                 startLogReader()
                 startWatchdog(appContext, params)
@@ -473,6 +476,7 @@ object TunnelManager {
                             val turnError = text.contains("Ошибка", true) ||
                                 text.contains("не удалось", true) ||
                                 text.contains("неполный ответ", true)
+                            if (turnError) lastTurnIssueAtMs = now
                             updateLog("turn_${text.take(32).hashCode()}", "[TURN] $text", 2, turnError)
                         }
                         lineTrim.contains("Relay:") ->
@@ -586,19 +590,22 @@ object TunnelManager {
 
                 // Детекция зомби: процесс жив, но 0 воркеров
                 val workers = activeWorkers.value
+                val nowMs = System.currentTimeMillis()
+                val recentTurnIssue = lastTurnIssueAtMs > 0L && nowMs - lastTurnIssueAtMs < 45_000
                 if (workers <= 0) {
                     if (zeroWorkersSince == 0L) {
-                        zeroWorkersSince = System.currentTimeMillis()
+                        zeroWorkersSince = nowMs
                     } else if (
-                        wrapAuthTimeoutCount >= 3 &&
+                        wrapAuthTimeoutCount >= 5 &&
                         processStartedAtMs > 0L &&
-                        System.currentTimeMillis() - processStartedAtMs > 30_000 &&
+                        nowMs - processStartedAtMs > 60_000 &&
                         lastActiveAtMs == 0L &&
+                        !recentTurnIssue &&
                         !ManlCaptchaWebViewManager.isCaptchaPending
                     ) {
                         handleCriticalError("\uD83D\uDD12 Неверный пароль подключения или несовместимый WRAP. Воркеры остановлены.")
                         return@launch
-                    } else if (System.currentTimeMillis() - zeroWorkersSince > 90_000 && !ManlCaptchaWebViewManager.isCaptchaPending) {
+                    } else if (nowMs - zeroWorkersSince > 90_000 && !ManlCaptchaWebViewManager.isCaptchaPending) {
                         updateLog("watchdog", "⚠ Зомби-процесс (0 воркеров 90с). Перезапуск...", 50, true)
                         forceRegenerateUA = true
                         killProcess()

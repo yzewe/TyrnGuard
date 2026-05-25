@@ -18,14 +18,12 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.json.JSONArray
 
 private const val TUNNEL_NOTIFICATION_CHANNEL_ID = "wdtt_tunnel_v4"
 private const val TUNNEL_NOTIFICATION_ID = 1
@@ -35,8 +33,7 @@ class TunnelService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private var updateJob: Job? = null
     private var lastNotificationText: String? = null
-    
-    // Network Monitoring
+
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetworkChangeTime = 0L
@@ -46,7 +43,6 @@ class TunnelService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        // Сразу берем лок при создании
         acquireWakeLock()
         setupNetworkCallback()
     }
@@ -83,8 +79,8 @@ class TunnelService : Service() {
                 acquireWakeLock()
             }
             "DEPLOY_CANCEL" -> {
-                com.tyrnguard.client.DeployManager.writeError("[!] ❌ Установка отменена пользователем")
-                com.tyrnguard.client.DeployManager.stopDeploy("error: Отменена пользователем")
+                DeployManager.writeError("[!] Установка отменена пользователем")
+                DeployManager.stopDeploy("error: Отменена пользователем")
                 stopForeground(STOP_FOREGROUND_REMOVE)
             }
             "DEPLOY_STOP" -> {
@@ -101,22 +97,22 @@ class TunnelService : Service() {
     private fun restoreTunnel() {
         val notification = createNotification("Восстановление соединения...")
         startPersistentForeground(notification)
-        
+
         val appContext = applicationContext
         TunnelManager.scope.launch {
             try {
                 val store = SettingsStore(appContext)
                 val basePeer = store.peer.first()
-                val serverDtlsPort = findSavedServerDtlsPort(basePeer, store.savedServersJson.first())
-                val peerWithPort = if (basePeer.isBlank() || basePeer.contains(":")) basePeer else "$basePeer:$serverDtlsPort"
+                val serversJson = store.savedServersJson.first()
                 val params = TunnelParams(
-                    peer = peerWithPort,
+                    peer = buildPeerWithSavedServerPort(basePeer, serversJson),
                     vkHashes = store.vkHashes.first(),
                     secondaryVkHash = store.secondaryVkHash.first(),
                     workersPerHash = store.workersPerHash.first(),
                     port = store.listenPort.first(),
                     sni = store.sni.first(),
-                    connectionPassword = store.connectionPassword.first(),
+                    connectionPassword = resolveSavedServerPassword(basePeer, serversJson, store.connectionPassword.first()),
+                    protocol = store.protocol.first(),
                     captchaMode = sanitizeCaptchaMode(store.captchaMode.first()),
                     captchaSolveMethod = store.captchaSolveMethod.first()
                 )
@@ -129,7 +125,7 @@ class TunnelService : Service() {
                         stopTunnel()
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 launch(Dispatchers.Main) {
                     stopTunnel()
                 }
@@ -137,29 +133,10 @@ class TunnelService : Service() {
         }
     }
 
-    private fun findSavedServerDtlsPort(peer: String, serversJson: String): Int {
-        val normalizedPeer = peer.trim().substringBefore(":")
-        return try {
-            val array = JSONArray(serversJson)
-            for (i in 0 until array.length()) {
-                val obj = array.optJSONObject(i) ?: continue
-                if (obj.optString("ip").trim() == normalizedPeer) {
-                    return obj.optInt("dtlsPort", 56000).coerceIn(1, 65535)
-                }
-            }
-            56000
-        } catch (_: Exception) {
-            56000
-        }
-    }
-
     private fun startTunnel(params: TunnelParams) {
         updateNotification("Подключение...")
         acquireWakeLock()
         acquireWifiLock()
-
-        // Подготавливаем CaptchaWebViewManager (не создаёт WebView — просто сохраняет контекст)
-        // Вызываем всегда — дёшево, а WebView создаётся на лету при каждом запросе капчи
         CaptchaWebViewManager.onTunnelStart(applicationContext)
 
         TunnelManager.start(this, params)
@@ -168,8 +145,6 @@ class TunnelService : Service() {
 
     private fun stopTunnel() {
         updateJob?.cancel()
-
-        // Уничтожаем текущий WebView (если капча решается) и чистим контекст
         CaptchaWebViewManager.onTunnelStop()
 
         TunnelManager.stop()
@@ -182,7 +157,7 @@ class TunnelService : Service() {
     private fun setupNetworkCallback() {
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         activeNetworks.clear()
-        
+
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 super.onAvailable(network)
@@ -211,21 +186,19 @@ class TunnelService : Service() {
                     releaseWifiLock()
                     Log.d("TunnelService", "Сеть потеряна, приостанавливаем туннель")
                     TunnelManager.pause()
-                    updateNotification("Ожидание сети (Фоновый сон)")
+                    updateNotification("Ожидание сети (фоновый сон)")
                 }
             }
         }
 
-        // ВАЖНО: Слушаем только реальные (не VPN) сети с доступом в интернет.
-        // Иначе интерфейс VPN (tun0) считается активной сетью, и при "Режиме полёта" activeNetworks не падает до 0.
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
-            
+
         connectivityManager?.registerNetworkCallback(request, networkCallback!!)
     }
-    
+
     private fun handleNetworkChange() {
         val now = System.currentTimeMillis()
         if (now - lastNetworkChangeTime < 5000) return
@@ -252,9 +225,9 @@ class TunnelService : Service() {
         wakeLock = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "wdtt:tunnel_cpu"
-        ).apply { 
+        ).apply {
             setReferenceCounted(false)
-            acquire() 
+            acquire()
         }
     }
 
@@ -263,18 +236,16 @@ class TunnelService : Service() {
         if (!isActiveNetworkWifi()) return
         if (wifiLock?.isHeld == true) return
         val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-        
-        // Используем WIFI_MODE_FULL_LOW_LATENCY для Android 10+, 
-        // это предотвращает отключение радиомодуля при выключенном экране
+
         val mode = if (Build.VERSION.SDK_INT >= 29) {
             WifiManager.WIFI_MODE_FULL_LOW_LATENCY
         } else {
             WifiManager.WIFI_MODE_FULL_HIGH_PERF
         }
-        
-        wifiLock = wm.createWifiLock(mode, "wdtt:wifi_perf").apply { 
+
+        wifiLock = wm.createWifiLock(mode, "wdtt:wifi_perf").apply {
             setReferenceCounted(false)
-            acquire() 
+            acquire()
         }
     }
 
@@ -305,7 +276,6 @@ class TunnelService : Service() {
             delay(1000)
             while (isActive) {
                 if (!TunnelManager.running.value && !isTunnelPaused) {
-                    // Туннель полностью остановлен (не на паузе) — убиваем сервис
                     stopSelf()
                     break
                 }
@@ -334,7 +304,6 @@ class TunnelService : Service() {
         ).apply {
             description = "Уведомление о работе туннеля"
             setShowBadge(false)
-            // ВАЖНО: Разрешаем показывать на экране блокировки
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             setSound(null, null)
             enableVibration(false)
@@ -348,7 +317,7 @@ class TunnelService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        
+
         val stopIntent = PendingIntent.getService(
             this, if (actionName == "STOP") 1 else 2,
             Intent(this, TunnelService::class.java).apply { action = actionName },
@@ -364,12 +333,10 @@ class TunnelService : Service() {
             .setContentIntent(openIntent)
             .addAction(R.drawable.ic_stop, actionTitle, stopIntent)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFAULT)
-            // ВАЖНО: Делаем уведомление публичным (видимым на локскрине)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            // Категория SERVICE помогает системе понять важность
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setOnlyAlertOnce(true) // Не издавать звук и не будить экран при обновлении статистики!
-            .setSilent(true) // Делаем тихим само уведомление
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setShowWhen(false)
             .setUsesChronometer(false)
             .setWhen(0L)

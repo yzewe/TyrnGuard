@@ -388,7 +388,7 @@ fun InterfaceSettings(onBack: () -> Unit) {
             AnimatedVisibility(visible = !dynamicColor) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     HorizontalDivider(modifier = Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Text("РџР°Р»РёС‚СЂР°", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("Палитра", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     ColorPalettePicker(
                         selected = themePalette,
                         onSelect = { palette -> scope.launch { settingsStore.saveThemePalette(palette) } }
@@ -598,7 +598,7 @@ suspend fun addServerToStoreDirect(context: Context, settingsStore: SettingsStor
     if (existsIdx != -1) currentArray.put(existsIdx, newObj) else currentArray.put(newObj)
     settingsStore.saveServersList(currentArray.toString())
 
-    withContext(Dispatchers.Main) { Toast.makeText(context, "Сервер '$name' ${if (existsIdx != -1) "РѕР±РЅРѕРІР»РµРЅ" else "РґРѕР±Р°РІР»РµРЅ"}", Toast.LENGTH_SHORT).show() }
+    withContext(Dispatchers.Main) { Toast.makeText(context, "Сервер '$name' ${if (existsIdx != -1) "обновлен" else "добавлен"}", Toast.LENGTH_SHORT).show() }
 }
 
 @Composable

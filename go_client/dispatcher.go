@@ -92,6 +92,7 @@ func NewDispatcher(ctx context.Context, localConn net.PacketConn, stats *Stats) 
 func (d *Dispatcher) Shutdown() {
 	d.cancel()
 	d.wg.Wait()
+	drainPacketQueue(d.ReturnCh)
 }
 
 func (d *Dispatcher) Register(w *WorkerSlot) {
@@ -117,7 +118,31 @@ func (d *Dispatcher) Unregister(slot *WorkerSlot) {
 	}
 	d.rrCount = 0
 	d.mu.Unlock()
+	drainWorkerQueue(slot)
 	log.Printf("[ДИСП] Воркер #%d отключён (осталось: %d)", slot.ID, remaining)
+}
+
+func drainWorkerQueue(slot *WorkerSlot) int {
+	if slot == nil {
+		return 0
+	}
+	return drainPacketQueue(slot.SendCh)
+}
+
+func drainPacketQueue(ch <-chan []byte) int {
+	drained := 0
+	for {
+		select {
+		case pkt, ok := <-ch:
+			if !ok {
+				return drained
+			}
+			releasePacketBuffer(pkt)
+			drained++
+		default:
+			return drained
+		}
+	}
 }
 
 // readLoop читает WireGuard-пакеты и распределяет по workers chunk'ами.

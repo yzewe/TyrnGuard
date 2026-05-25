@@ -467,22 +467,70 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 		log.Printf("[STREAM %d] [VK Auth]   [%d] %v", streamID, i, u)
 	}
 
-	var addresses []string
-	for _, u := range urlsRaw {
-		urlStr, ok := u.(string)
-		if !ok {
-			continue
-		}
-		clean := strings.Split(urlStr, "?")[0]
-		address := strings.TrimPrefix(strings.TrimPrefix(clean, "turn:"), "turns:")
-		addresses = append(addresses, address)
-	}
+	addresses := parseTURNServerURLs(urlsRaw)
 
 	if len(addresses) == 0 {
 		return "", "", nil, fmt.Errorf("no valid TURN addresses found")
 	}
 
 	return user, pass, addresses, nil
+}
+
+func parseTURNServerURLs(urlsRaw []interface{}) []string {
+	addresses := make([]string, 0, len(urlsRaw))
+	seen := make(map[string]struct{}, len(urlsRaw))
+	for _, raw := range urlsRaw {
+		urlStr, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		address, ok := parseTURNServerURL(urlStr)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[address]; exists {
+			continue
+		}
+		seen[address] = struct{}{}
+		addresses = append(addresses, address)
+	}
+	return addresses
+}
+
+func parseTURNServerURL(raw string) (string, bool) {
+	s := strings.TrimSpace(raw)
+	lower := strings.ToLower(s)
+	if strings.HasPrefix(lower, "turns:") {
+		return "", false
+	}
+	if !strings.HasPrefix(lower, "turn:") {
+		return "", false
+	}
+
+	body := strings.TrimSpace(s[len("turn:"):])
+	if body == "" {
+		return "", false
+	}
+	address := body
+	query := ""
+	if idx := strings.IndexByte(body, '?'); idx >= 0 {
+		address = body[:idx]
+		query = body[idx+1:]
+	}
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return "", false
+	}
+	if query != "" {
+		values, err := neturl.ParseQuery(query)
+		if err == nil {
+			transport := strings.ToLower(strings.TrimSpace(values.Get("transport")))
+			if transport != "" && transport != "udp" {
+				return "", false
+			}
+		}
+	}
+	return address, true
 }
 
 func solveCaptchaBySelectedMode(

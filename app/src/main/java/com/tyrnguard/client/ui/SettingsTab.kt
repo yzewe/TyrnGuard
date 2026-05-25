@@ -94,20 +94,6 @@ enum class WidgetType(val title: String, val icon: ImageVector, val isWide: Bool
 
 private const val RJS_TEMPORARILY_DISABLED = true
 
-private fun normalizeServerHost(value: String): String {
-    val trimmed = value.trim()
-    if (trimmed.isBlank()) return ""
-    return trimmed
-        .removePrefix("udp://")
-        .removePrefix("tcp://")
-        .removePrefix("turn://")
-        .substringBefore("/")
-        .let { host ->
-            if (host.count { it == ':' } == 1) host.substringBefore(":") else host
-        }
-        .trim()
-}
-
 private fun formatRate(bytesPerSecond: Long): String {
     if (bytesPerSecond <= 0L) return "0 KB/s"
     val kb = bytesPerSecond / 1024f
@@ -190,12 +176,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
         } catch (_: Exception) {}
     }
 
-    val activeServer by remember {
-        derivedStateOf {
-            val activeHost = normalizeServerHost(peer)
-            serverList.find { normalizeServerHost(it.ip) == activeHost }
-        }
-    }
+    val activeServer by remember { derivedStateOf { resolveActiveServer(serverList, peer) } }
 
     var showServerBottomSheet by remember { mutableStateOf(false) }
     var showDiagnosticDialog by remember { mutableStateOf(false) }
@@ -232,7 +213,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
     }
 
     fun startTunnel() {
-        if (peer.isBlank() || hashes.isBlank()) { 
+        if (peer.isBlank() || hashes.isBlank()) {
             Toast.makeText(context, "Сначала выберите сервер и добавьте VK хеши в настройках!", Toast.LENGTH_LONG).show()
             return 
         }
@@ -240,6 +221,14 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
         val effectiveServerDtlsPort = activeServer?.dtlsPort?.coerceIn(1, 65535) ?: 56000
         val effectiveLocalPort = port.coerceIn(1, 65535)
         val finalPeer = if (peer.contains(":")) peer else "${peer.trim()}:$effectiveServerDtlsPort"
+        val effectiveConnectionPassword = resolveConnectionPassword(activeServer, connPass)
+        if (effectiveConnectionPassword.isBlank()) {
+            Toast.makeText(context, "Пароль подключения не указан", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (effectiveConnectionPassword != connPass.trim()) {
+            scope.launch { settingsStore.saveConnectionPassword(effectiveConnectionPassword) }
+        }
 
         val effectiveCaptchaMode = if (RJS_TEMPORARILY_DISABLED) "wv" else captchaMode
         val effectiveCaptchaMethod = if (effectiveCaptchaMode == "wv" && captchaMethod == "manual") "manual" else "auto"
@@ -251,7 +240,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
             putExtra("workers_per_hash", workers)
             putExtra("port", effectiveLocalPort)
             putExtra("sni", sni)
-            putExtra("connection_password", connPass.trim())
+            putExtra("connection_password", effectiveConnectionPassword)
             putExtra("protocol", protocol)
             putExtra("captcha_mode", effectiveCaptchaMode)
             putExtra("captcha_solve_method", effectiveCaptchaMethod)

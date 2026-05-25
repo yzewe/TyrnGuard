@@ -28,7 +28,6 @@ class WdttWidgetProvider : AppWidgetProvider() {
         if (intent.action == "TOGGLE_VPN") {
             handleToggle(context)
         }
-        // Обновляем все виджеты при любом изменении состояния
         val manager = AppWidgetManager.getInstance(context)
         val ids = manager.getAppWidgetIds(ComponentName(context, WdttWidgetProvider::class.java))
         for (id in ids) {
@@ -44,16 +43,20 @@ class WdttWidgetProvider : AppWidgetProvider() {
                 val store = SettingsStore(context)
                 val peer = store.peer.first()
                 val hashes = store.vkHashes.first()
+                val serversJson = store.savedServersJson.first()
                 if (peer.isNotBlank() && hashes.isNotBlank()) {
                     val intent = Intent(context, TunnelService::class.java).apply {
                         action = "START"
-                        putExtra("peer", "$peer:56000")
+                        putExtra("peer", buildPeerWithSavedServerPort(peer, serversJson))
                         putExtra("vk_hashes", hashes)
+                        putExtra("secondary_vk_hash", store.secondaryVkHash.first())
                         putExtra("workers_per_hash", store.workersPerHash.first())
                         putExtra("port", store.listenPort.first())
+                        putExtra("sni", store.sni.first())
                         putExtra("protocol", store.protocol.first())
                         putExtra("captcha_mode", store.captchaMode.first())
-                        putExtra("connection_password", store.connectionPassword.first())
+                        putExtra("captcha_solve_method", store.captchaSolveMethod.first())
+                        putExtra("connection_password", resolveSavedServerPassword(peer, serversJson, store.connectionPassword.first()))
                     }
                     if (Build.VERSION.SDK_INT >= 26) {
                         context.startForegroundService(intent)
@@ -69,7 +72,6 @@ class WdttWidgetProvider : AppWidgetProvider() {
         val views = RemoteViews(context.packageName, R.layout.wdtt_widget)
         val isRunning = TunnelManager.running.value
 
-        // Меняем фон (цвета) и иконки на новые
         if (isRunning) {
             views.setInt(R.id.widget_button, "setBackgroundResource", R.drawable.widget_bg_active)
             views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_shield)
@@ -78,12 +80,11 @@ class WdttWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_lock)
         }
 
-        // Назначаем клик
         val intent = Intent(context, WdttWidgetProvider::class.java).apply { action = "TOGGLE_VPN" }
         val pendingIntent = PendingIntent.getBroadcast(
-            context, 
-            0, 
-            intent, 
+            context,
+            0,
+            intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         views.setOnClickPendingIntent(R.id.widget_button, pendingIntent)

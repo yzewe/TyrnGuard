@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	workerSendBuf      = 128
+	workerSendBuf      = 64
 	sessionReadTimeout = 30 * time.Minute // Increased from 60s to 30min
 	readBufSize        = 1600
 	socketBufSize      = 384 * 1024
@@ -246,6 +246,10 @@ func RunSession(
 		defer relayWg.Done()
 		defer sessCancel()
 		b := make([]byte, readBufSize)
+		var wrapBuf []byte
+		if useWrap {
+			wrapBuf = make([]byte, obfsMaxWireLen(readBufSize, obfsCfg))
+		}
 		for {
 			n, _, readErr := pipeA.ReadFrom(b)
 			if readErr != nil {
@@ -254,7 +258,7 @@ func RunSession(
 			out := b[:n]
 			if useWrap {
 				if obfsCfg != nil && obfsWriteState != nil {
-					wrapped, wrapErr := obfsWrapPacket(obfsAEAD, out, obfsCfg, obfsWriteState)
+					wrapped, wrapErr := obfsWrapPacketTo(obfsAEAD, out, obfsCfg, obfsWriteState, wrapBuf)
 					if wrapErr != nil {
 						log.Printf("[СЕССИЯ #%d] OBFS wrap: %v", sessionID, wrapErr)
 						return
