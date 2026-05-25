@@ -128,6 +128,7 @@ func RunSession(
 		STUNServerAddr:         turnAddr,
 		TURNServerAddr:         turnAddr,
 		Conn:                   turnConn,
+		Net:                    noInterfaceNet{},
 		Username:               creds.User,
 		Password:               creds.Pass,
 		RequestedAddressFamily: addrFamily,
