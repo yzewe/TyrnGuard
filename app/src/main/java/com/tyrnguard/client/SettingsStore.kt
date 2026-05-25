@@ -284,6 +284,18 @@ class SettingsStore(context: Context) {
         }
     }
 
+    suspend fun saveListenPort(listenPort: Int) {
+        dataStore.edit { prefs ->
+            prefs[LISTEN_PORT] = listenPort
+        }
+    }
+
+    suspend fun saveSni(sni: String) {
+        dataStore.edit { prefs ->
+            prefs[SNI] = sni
+        }
+    }
+
     suspend fun saveUserAgent(ua: String) {
         dataStore.edit { prefs ->
             prefs[USER_AGENT] = ua

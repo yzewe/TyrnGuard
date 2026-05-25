@@ -7,7 +7,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -248,8 +247,7 @@ fun WDTTTheme(
             window.statusBarColor = Color.Transparent.toArgb()
             
             // Прозрачный или полупрозрачный NavigationBar
-            val navBarColor = if (darkTheme) Color.Transparent else lerp(colorScheme.background, colorScheme.surface, 0.5f)
-            window.navigationBarColor = navBarColor.toArgb()
+            window.navigationBarColor = colorScheme.surfaceContainerHigh.toArgb()
 
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !darkTheme

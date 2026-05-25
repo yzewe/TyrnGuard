@@ -1,4 +1,4 @@
-package com.tyrnguard.client.ui
+﻿package com.tyrnguard.client.ui
 
 import android.content.Context
 import android.content.Intent
@@ -40,14 +40,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -79,17 +77,19 @@ data class TyrnGuardServer(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val ip: String,
-    val password: String
+    val password: String,
+    val dtlsPort: Int = 56000,
+    val wgPort: Int = 56001
 )
 
 enum class WidgetType(val title: String, val icon: ImageVector, val isWide: Boolean = false) {
-    PING("Пинг", Icons.Default.NetworkPing),
-    SESSION("Сессия", Icons.Default.Timer),
-    WORKERS("Воркеры", Icons.Default.Hub),
-    SPEED("Скорость", Icons.Default.Download),
-    TRAFFIC("Трафик", Icons.Default.DataUsage),
-    HEALTH("Статус", Icons.Default.HealthAndSafety),
-    GRAPH("График сети", Icons.Default.QueryStats, isWide = true)
+    PING("РџРёРЅРі", Icons.Default.NetworkPing),
+    SESSION("РЎРµСЃСЃРёСЏ", Icons.Default.Timer),
+    WORKERS("Р’РѕСЂРєРµСЂС‹", Icons.Default.Hub),
+    SPEED("РЎРєРѕСЂРѕСЃС‚СЊ", Icons.Default.Download),
+    TRAFFIC("РўСЂР°С„РёРє", Icons.Default.DataUsage),
+    HEALTH("РЎС‚Р°С‚СѓСЃ", Icons.Default.HealthAndSafety),
+    GRAPH("Р“СЂР°С„РёРє СЃРµС‚Рё", Icons.Default.QueryStats, isWide = true)
 }
 
 private const val RJS_TEMPORARILY_DISABLED = true
@@ -126,8 +126,6 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
     val hashes by settingsStore.vkHashes.collectAsStateWithLifecycle("")
     val workers by settingsStore.workersPerHash.collectAsStateWithLifecycle(24)
     val port by settingsStore.listenPort.collectAsStateWithLifecycle(9000)
-    val manualPortsEnabled by settingsStore.manualPortsEnabled.collectAsStateWithLifecycle(false)
-    val serverDtlsPort by settingsStore.serverDtlsPort.collectAsStateWithLifecycle(56000)
     val sni by settingsStore.sni.collectAsStateWithLifecycle("")
     val connPass by settingsStore.connectionPassword.collectAsStateWithLifecycle("")
     val protocol by settingsStore.protocol.collectAsStateWithLifecycle("udp")
@@ -164,12 +162,21 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
             val array = JSONArray(savedServersJson)
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                serverList.add(TyrnGuardServer(obj.optString("id", UUID.randomUUID().toString()), obj.optString("name"), obj.optString("ip").trim(), obj.optString("password").trim()))
+                serverList.add(
+                    TyrnGuardServer(
+                        id = obj.optString("id", UUID.randomUUID().toString()),
+                        name = obj.optString("name"),
+                        ip = obj.optString("ip").trim(),
+                        password = obj.optString("password").trim(),
+                        dtlsPort = obj.optInt("dtlsPort", 56000).coerceIn(1, 65535),
+                        wgPort = obj.optInt("wgPort", 56001).coerceIn(1, 65535)
+                    )
+                )
             }
         } catch (_: Exception) {}
     }
 
-    val activeServer = remember(peer, serverList.size) { serverList.find { it.ip == peer.trim() } }
+    val activeServer = remember(peer, savedServersJson) { serverList.find { it.ip == peer.trim() } }
 
     var showServerBottomSheet by remember { mutableStateOf(false) }
     var showDiagnosticDialog by remember { mutableStateOf(false) }
@@ -184,7 +191,18 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
 
     fun saveServers() {
         val array = JSONArray()
-        serverList.forEach { array.put(JSONObject().apply { put("id", it.id); put("name", it.name); put("ip", it.ip.trim()); put("password", it.password.trim()) }) }
+        serverList.forEach {
+            array.put(
+                JSONObject().apply {
+                    put("id", it.id)
+                    put("name", it.name)
+                    put("ip", it.ip.trim())
+                    put("password", it.password.trim())
+                    put("dtlsPort", it.dtlsPort.coerceIn(1, 65535))
+                    put("wgPort", it.wgPort.coerceIn(1, 65535))
+                }
+            )
+        }
         scope.launch { settingsStore.saveServersList(array.toString()) }
     }
 
@@ -196,12 +214,12 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
 
     fun startTunnel() {
         if (peer.isBlank() || hashes.isBlank()) { 
-            Toast.makeText(context, "Сначала выберите сервер и добавьте VK хеши в настройках!", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СЃРµСЂРІРµСЂ Рё РґРѕР±Р°РІСЊС‚Рµ VK С…РµС€Рё РІ РЅР°СЃС‚СЂРѕР№РєР°С…!", Toast.LENGTH_LONG).show()
             return 
         }
         
-        val effectiveServerDtlsPort = if (manualPortsEnabled) serverDtlsPort.coerceIn(1, 65535) else 56000
-        val effectiveLocalPort = if (manualPortsEnabled) port.coerceIn(1, 65535) else 9000
+        val effectiveServerDtlsPort = activeServer?.dtlsPort?.coerceIn(1, 65535) ?: 56000
+        val effectiveLocalPort = port.coerceIn(1, 65535)
         val finalPeer = if (peer.contains(":")) peer else "${peer.trim()}:$effectiveServerDtlsPort"
 
         val effectiveCaptchaMode = if (RJS_TEMPORARILY_DISABLED) "wv" else captchaMode
@@ -226,7 +244,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
         if (pendingStartAfterVpnPermission) {
             pendingStartAfterVpnPermission = false
             if (VpnService.prepare(context) == null) startTunnel()
-            else Toast.makeText(context, "VPN-разрешение не выдано", Toast.LENGTH_SHORT).show()
+            else Toast.makeText(context, "VPN-СЂР°Р·СЂРµС€РµРЅРёРµ РЅРµ РІС‹РґР°РЅРѕ", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -248,7 +266,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Дашборд", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+            Text("Р”Р°С€Р±РѕСЂРґ", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
             IconButton(
                 onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); isEditMode = !isEditMode },
                 modifier = Modifier.background(if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape)
@@ -280,8 +298,8 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Текущий сервер", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(activeServer?.name ?: "Не выбран", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
+                    Text("РўРµРєСѓС‰РёР№ СЃРµСЂРІРµСЂ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(activeServer?.name ?: "РќРµ РІС‹Р±СЂР°РЅ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
                 }
                 if (isEditMode) {
                     Icon(Icons.Default.DragHandle, null, tint = MaterialTheme.colorScheme.outline)
@@ -298,11 +316,11 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
         }
 
         val connectionStatusText = when {
-            tunnelRunning -> "Подключено"
-            cooldownSeconds > 4 -> "Подключение..."
-            cooldownSeconds > 2 -> "Проверка конфигурации..."
-            cooldownSeconds > 0 -> "Установка туннеля..."
-            else -> "Нажмите для старта"
+            tunnelRunning -> "РџРѕРґРєР»СЋС‡РµРЅРѕ"
+            cooldownSeconds > 4 -> "РџРѕРґРєР»СЋС‡РµРЅРёРµ..."
+            cooldownSeconds > 2 -> "РџСЂРѕРІРµСЂРєР° РєРѕРЅС„РёРіСѓСЂР°С†РёРё..."
+            cooldownSeconds > 0 -> "РЈСЃС‚Р°РЅРѕРІРєР° С‚СѓРЅРЅРµР»СЏ..."
+            else -> "РќР°Р¶РјРёС‚Рµ РґР»СЏ СЃС‚Р°СЂС‚Р°"
         }
 
         val mainBtnInteractionSource = remember { MutableInteractionSource() }
@@ -467,7 +485,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
 
         androidx.compose.animation.AnimatedVisibility(visible = isEditMode && availableWidgetList.isNotEmpty(), enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(), exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
             Column(modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) {
-                Text("Доступные виджеты", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+                Text("Р”РѕСЃС‚СѓРїРЅС‹Рµ РІРёРґР¶РµС‚С‹", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2), modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), userScrollEnabled = false,
@@ -510,16 +528,16 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
         ModalBottomSheet(onDismissRequest = { showServerBottomSheet = false }) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateContentSize()) {
                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Список серверов", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("РЎРїРёСЃРѕРє СЃРµСЂРІРµСЂРѕРІ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     if (serverList.isNotEmpty()) {
                         TextButton(onClick = { isServerEditMode = !isServerEditMode; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }) {
-                            Text(if (isServerEditMode) "Готово" else "Правка", fontWeight = FontWeight.Bold)
+                            Text(if (isServerEditMode) "Р“РѕС‚РѕРІРѕ" else "РџСЂР°РІРєР°", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
                 
                 if (serverList.isEmpty()) {
-                    Text("Список пуст", modifier = Modifier.padding(vertical = 32.dp).align(Alignment.CenterHorizontally), fontSize = 16.sp)
+                    Text("РЎРїРёСЃРѕРє РїСѓСЃС‚", modifier = Modifier.padding(vertical = 32.dp).align(Alignment.CenterHorizontally), fontSize = 16.sp)
                 } else {
                     LazyColumn(
                         state = listState,
@@ -603,6 +621,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(server.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
                                         Text(server.ip, style = MaterialTheme.typography.bodyMedium, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                                        Text("DTLS ${server.dtlsPort}  |  WG ${server.wgPort}", style = MaterialTheme.typography.labelSmall, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     
                                     if (isServerEditMode) {
@@ -616,7 +635,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
                     }
                 }
                 Button(onClick = { serverToEdit = TyrnGuardServer(name = "", ip = "", password = "") }, modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) {
-                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Добавить сервер", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Р”РѕР±Р°РІРёС‚СЊ СЃРµСЂРІРµСЂ", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -685,8 +704,8 @@ fun DiagnosticDialog(context: Context, peer: String, hashes: String, onDismiss: 
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Column(modifier = Modifier.padding(24.dp).fillMaxWidth().animateContentSize()) {
-                Text("Диагностика", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-                val steps = listOf("Доступ к интернету", "Доступность сервера (VPS)", "Формат VK Хэшей", "Ядро туннеля (Core)")
+                Text("Р”РёР°РіРЅРѕСЃС‚РёРєР°", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                val steps = listOf("Р”РѕСЃС‚СѓРї Рє РёРЅС‚РµСЂРЅРµС‚Сѓ", "Р”РѕСЃС‚СѓРїРЅРѕСЃС‚СЊ СЃРµСЂРІРµСЂР° (VPS)", "Р¤РѕСЂРјР°С‚ VK РҐСЌС€РµР№", "РЇРґСЂРѕ С‚СѓРЅРЅРµР»СЏ (Core)")
                 steps.forEachIndexed { i, title ->
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         AnimatedContent(targetState = results[i], label = "") { res ->
@@ -701,7 +720,7 @@ fun DiagnosticDialog(context: Context, peer: String, hashes: String, onDismiss: 
                     }
                 }
                 Spacer(Modifier.height(24.dp))
-                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(20.dp), enabled = step == 4) { Text("Закрыть", fontWeight = FontWeight.Bold) }
+                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(20.dp), enabled = step == 4) { Text("Р—Р°РєСЂС‹С‚СЊ", fontWeight = FontWeight.Bold) }
             }
         }
     }
@@ -713,24 +732,19 @@ fun SpeedGraphCard(isRunning: Boolean, currentSpeedBytes: Long, modifier: Modifi
     LaunchedEffect(currentSpeedBytes, isRunning) { points.removeAt(0); points.add(if (isRunning) currentSpeedBytes.toFloat() else 0f) }
     val maxPoint by remember(points) { derivedStateOf { (points.maxOrNull() ?: 1f).coerceAtLeast(1024 * 50f) } }
 
-    val container = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.primaryContainer, 0.08f)
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(26.dp),
-        color = Color.Transparent,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f)),
         shadowElevation = 2.dp
     ) {
-        Column(
-            modifier = Modifier
-                .background(Brush.verticalGradient(listOf(container, MaterialTheme.colorScheme.surfaceContainer)))
-                .padding(20.dp)
-        ) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.QueryStats, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Трафик сети", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("РўСЂР°С„РёРє СЃРµС‚Рё", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 val dotColor by animateColorAsState(if (isRunning && currentSpeedBytes > 1024) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, label = "")
                 Box(modifier = Modifier.size(10.dp).background(dotColor, CircleShape))
@@ -751,7 +765,7 @@ fun SpeedGraphCard(isRunning: Boolean, currentSpeedBytes: Long, modifier: Modifi
                 }
                 drawPath(path = path, color = lineColor, style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                 val fillPath = Path().apply { addPath(path); lineTo(size.width, size.height); lineTo(0f, size.height); close() }
-                drawPath(path = fillPath, brush = Brush.verticalGradient(listOf(lineColor.copy(alpha = 0.4f), Color.Transparent), 0f, size.height))
+                drawPath(path = fillPath, color = lineColor.copy(alpha = 0.10f))
             }
         }
     }
@@ -759,19 +773,16 @@ fun SpeedGraphCard(isRunning: Boolean, currentSpeedBytes: Long, modifier: Modifi
 
 @Composable
 fun DashboardCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val container = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.primaryContainer, 0.10f)
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        color = Color.Transparent,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)),
         shadowElevation = 2.dp
     ) {
         Column(
-            modifier = Modifier
-                .background(Brush.verticalGradient(listOf(container, MaterialTheme.colorScheme.surfaceContainer)))
-                .padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -792,18 +803,26 @@ fun AddEditServerDialog(server: TyrnGuardServer, onDismiss: () -> Unit, onSave: 
     var name by remember { mutableStateOf(server.name) }
     var ip by remember { mutableStateOf(server.ip) }
     var pass by remember { mutableStateOf(server.password) }
+    var dtlsPort by remember { mutableStateOf(server.dtlsPort.toString()) }
+    var wgPort by remember { mutableStateOf(server.wgPort.toString()) }
     val isNew = server.name.isBlank()
+    val normalizedDtlsPort = dtlsPort.toIntOrNull()?.coerceIn(1, 65535) ?: 56000
+    val normalizedWgPort = wgPort.toIntOrNull()?.coerceIn(1, 65535) ?: 56001
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 6.dp) {
             Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isNew) "Новый сервер" else "Настройки сервера", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(if (isNew) "РќРѕРІС‹Р№ СЃРµСЂРІРµСЂ" else "РќР°СЃС‚СЂРѕР№РєРё СЃРµСЂРІРµСЂР°", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     if (!isNew) IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
                 }
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Имя (напр. Германия)", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
-                OutlinedTextField(value = ip, onValueChange = { ip = it.filter { c -> !c.isWhitespace() } }, label = { Text("IP адрес", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
-                OutlinedTextField(value = pass, onValueChange = { pass = it.filter { c -> !c.isWhitespace() } }, label = { Text("Пароль от туннеля", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
-                Button(onClick = { onSave(server.copy(name = name, ip = ip, password = pass)) }, enabled = name.isNotBlank() && ip.isNotBlank(), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(20.dp)) { Text("Сохранить", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("РРјСЏ (РЅР°РїСЂ. Р“РµСЂРјР°РЅРёСЏ)", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
+                OutlinedTextField(value = ip, onValueChange = { ip = it.filter { c -> !c.isWhitespace() } }, label = { Text("IP Р°РґСЂРµСЃ", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
+                OutlinedTextField(value = pass, onValueChange = { pass = it.filter { c -> !c.isWhitespace() } }, label = { Text("РџР°СЂРѕР»СЊ РѕС‚ С‚СѓРЅРЅРµР»СЏ", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(value = dtlsPort, onValueChange = { dtlsPort = it.filter(Char::isDigit).take(5) }, label = { Text("DTLS", fontSize = 14.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+                    OutlinedTextField(value = wgPort, onValueChange = { wgPort = it.filter(Char::isDigit).take(5) }, label = { Text("WireGuard", fontSize = 14.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+                }
+                Button(onClick = { onSave(server.copy(name = name, ip = ip, password = pass, dtlsPort = normalizedDtlsPort, wgPort = normalizedWgPort)) }, enabled = name.isNotBlank() && ip.isNotBlank(), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(20.dp)) { Text("Сохранить", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             }
         }
     }

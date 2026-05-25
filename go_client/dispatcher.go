@@ -156,6 +156,7 @@ func (d *Dispatcher) readLoop() {
 		nw := len(d.workers)
 		if nw == 0 {
 			d.mu.Unlock()
+			releasePacketBuffer(pkt)
 			continue
 		}
 

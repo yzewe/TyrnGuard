@@ -42,10 +42,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -350,18 +348,10 @@ fun MainScreen(settingsStore: SettingsStore) {
         if (pagerState.currentPage == 3) TunnelManager.clearUnreadErrors()
     }
 
-    val backgroundBrush = Brush.verticalGradient(
-        listOf(
-            lerp(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.primaryContainer, 0.20f),
-            MaterialTheme.colorScheme.background,
-            lerp(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.secondaryContainer, 0.10f)
-        )
-    )
-
-    Box(modifier = Modifier.fillMaxSize().background(backgroundBrush)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            containerColor = Color.Transparent,
+            containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 StretchyNavigationBar(
                     items = navItems,
@@ -470,7 +460,9 @@ fun StretchyNavigationBar(
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
         tonalElevation = 6.dp,
         shadowElevation = 10.dp,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -501,14 +493,7 @@ fun StretchyNavigationBar(
                     .width(rightEdge - leftEdge)
                     .height(38.dp)
                     .clip(CircleShape)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primaryContainer,
-                                MaterialTheme.colorScheme.secondaryContainer
-                            )
-                        )
-                    )
+                    .background(MaterialTheme.colorScheme.primaryContainer)
             )
 
             Row(modifier = Modifier.fillMaxSize()) {

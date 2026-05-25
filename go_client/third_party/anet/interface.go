@@ -8,11 +8,19 @@ import (
 var errInvalidInterface = errors.New("invalid network interface")
 
 func Interfaces() ([]net.Interface, error) {
-	return net.Interfaces()
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return nil, nil
+	}
+	return ifs, nil
 }
 
 func InterfaceAddrs() ([]net.Addr, error) {
-	return net.InterfaceAddrs()
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, nil
+	}
+	return addrs, nil
 }
 
 func InterfaceByIndex(index int) (*net.Interface, error) {
@@ -27,7 +35,11 @@ func InterfaceAddrsByInterface(ifi *net.Interface) ([]net.Addr, error) {
 	if ifi == nil {
 		return nil, &net.OpError{Op: "route", Net: "ip+net", Err: errInvalidInterface}
 	}
-	return ifi.Addrs()
+	addrs, err := ifi.Addrs()
+	if err != nil {
+		return nil, nil
+	}
+	return addrs, nil
 }
 
 func SetAndroidVersion(version uint) {}

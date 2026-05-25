@@ -25,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 
 private const val TUNNEL_NOTIFICATION_CHANNEL_ID = "wdtt_tunnel_v4"
 private const val TUNNEL_NOTIFICATION_ID = 1
@@ -106,8 +107,7 @@ class TunnelService : Service() {
             try {
                 val store = SettingsStore(appContext)
                 val basePeer = store.peer.first()
-                val manualPortsEnabled = store.manualPortsEnabled.first()
-                val serverDtlsPort = if (manualPortsEnabled) store.serverDtlsPort.first() else 56000
+                val serverDtlsPort = findSavedServerDtlsPort(basePeer, store.savedServersJson.first())
                 val peerWithPort = if (basePeer.isBlank() || basePeer.contains(":")) basePeer else "$basePeer:$serverDtlsPort"
                 val params = TunnelParams(
                     peer = peerWithPort,
@@ -134,6 +134,22 @@ class TunnelService : Service() {
                     stopTunnel()
                 }
             }
+        }
+    }
+
+    private fun findSavedServerDtlsPort(peer: String, serversJson: String): Int {
+        val normalizedPeer = peer.trim().substringBefore(":")
+        return try {
+            val array = JSONArray(serversJson)
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                if (obj.optString("ip").trim() == normalizedPeer) {
+                    return obj.optInt("dtlsPort", 56000).coerceIn(1, 65535)
+                }
+            }
+            56000
+        } catch (_: Exception) {
+            56000
         }
     }
 
