@@ -1,0 +1,4 @@
+/.gitattributes text eol=lf
+*.sh text eol=lf
+gradlew text eol=lf
+app/src/main/assets/deploy.sh text eol=lf
