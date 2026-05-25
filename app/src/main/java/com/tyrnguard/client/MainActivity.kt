@@ -41,8 +41,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -342,10 +345,18 @@ fun MainScreen(settingsStore: SettingsStore) {
         if (pagerState.currentPage == 3) TunnelManager.clearUnreadErrors()
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val backgroundBrush = Brush.verticalGradient(
+        listOf(
+            lerp(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.primaryContainer, 0.20f),
+            MaterialTheme.colorScheme.background,
+            lerp(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.secondaryContainer, 0.10f)
+        )
+    )
+
+    Box(modifier = Modifier.fillMaxSize().background(backgroundBrush)) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            containerColor = MaterialTheme.colorScheme.background,
+            containerColor = Color.Transparent,
             bottomBar = {
                 StretchyNavigationBar(
                     items = navItems,
@@ -363,12 +374,16 @@ fun MainScreen(settingsStore: SettingsStore) {
             }
         ) { padding ->
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize().padding(padding), beyondViewportPageCount = 2) { page ->
-                Box(modifier = Modifier.graphicsLayer {
-                    val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-                    alpha = 1f - (pageOffset.coerceIn(0f, 1f) * 0.5f)
-                    scaleX = 1f - (pageOffset.coerceIn(0f, 1f) * 0.05f)
-                    scaleY = 1f - (pageOffset.coerceIn(0f, 1f) * 0.05f)
-                }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
+                            alpha = 1f - (pageOffset.coerceIn(0f, 1f) * 0.36f)
+                            scaleX = 1f - (pageOffset.coerceIn(0f, 1f) * 0.035f)
+                            scaleY = 1f - (pageOffset.coerceIn(0f, 1f) * 0.035f)
+                        }
+                ) {
                     when (page) {
                         0 -> SettingsTab(snackbarHostState)
                         1 -> DeployTab() // ИСПРАВЛЕНО: удален ненужный аргумент snackbarHostState
@@ -435,15 +450,17 @@ fun StretchyNavigationBar(
     tunnelRunning: Boolean
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
+        tonalElevation = 6.dp,
+        shadowElevation = 10.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         BoxWithConstraints(
             modifier = Modifier
                 .windowInsetsPadding(NavigationBarDefaults.windowInsets)
                 .fillMaxWidth()
-                .height(80.dp)
+                .height(84.dp)
         ) {
             val tabWidth = maxWidth / items.size
             val transition = updateTransition(targetState = selectedIndex, label = "tab_transition")
@@ -464,11 +481,18 @@ fun StretchyNavigationBar(
 
             Box(
                 modifier = Modifier
-                    .offset(x = leftEdge, y = 16.dp)
+                    .offset(x = leftEdge, y = 14.dp)
                     .width(rightEdge - leftEdge)
-                    .height(32.dp)
+                    .height(38.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                MaterialTheme.colorScheme.secondaryContainer
+                            )
+                        )
+                    )
             )
 
             Row(modifier = Modifier.fillMaxSize()) {
@@ -476,6 +500,7 @@ fun StretchyNavigationBar(
                     val selected = selectedIndex == index
                     val iconColor by animateColorAsState(if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, label = "")
                     val textColor by animateColorAsState(if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, label = "")
+                    val iconScale by animateFloatAsState(if (selected) 1.10f else 0.94f, spring(stiffness = Spring.StiffnessMediumLow), label = "")
                     val textWeight = if (selected) FontWeight.Bold else FontWeight.Medium
 
                     Box(
@@ -500,7 +525,12 @@ fun StretchyNavigationBar(
                                         }
                                     }
                                 ) {
-                                    Icon(if (selected) item.selectedIcon else item.unselectedIcon, contentDescription = item.label, tint = iconColor, modifier = Modifier.size(24.dp))
+                                    Icon(
+                                        if (selected) item.selectedIcon else item.unselectedIcon,
+                                        contentDescription = item.label,
+                                        tint = iconColor,
+                                        modifier = Modifier.size(24.dp).scale(iconScale)
+                                    )
                                 }
                             }
                             Spacer(modifier = Modifier.height(4.dp))

@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,6 +47,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -227,7 +229,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
     val jiggleTy by infiniteTransition.animateFloat(initialValue = -1.5f, targetValue = 1.5f, animationSpec = infiniteRepeatable(tween(110, easing = LinearEasing), RepeatMode.Reverse), label = "ty")
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp).animateContentSize(spring(stiffness = Spring.StiffnessLow)),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp).animateContentSize(spring(stiffness = Spring.StiffnessLow)),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -250,11 +252,16 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
                 .clickable(interactionSource = serverInteractionSource, indication = null) {
                     if (!tunnelRunning && !isEditMode) showServerBottomSheet = true
                 },
-            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, tonalElevation = 2.dp
+            shape = RoundedCornerShape(30.dp),
+            color = if (tunnelRunning) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = if (tunnelRunning) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)),
+            tonalElevation = if (tunnelRunning) 5.dp else 2.dp,
+            shadowElevation = if (tunnelRunning) 10.dp else 3.dp
         ) {
             Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(modifier = Modifier.size(52.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.onPrimary) }
+                Surface(modifier = Modifier.size(54.dp), shape = CircleShape, color = if (tunnelRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer) {
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Dns, null, tint = if (tunnelRunning) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer) }
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -290,7 +297,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
             animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow), label = "mainBtnScale"
         )
 
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(240.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(232.dp)) {
             if (tunnelRunning || cooldownSeconds > 0) PremiumRadarWaves(tunnelRunning)
             
             val circleColor by animateColorAsState(targetValue = if (tunnelRunning) MaterialTheme.colorScheme.primary else if (cooldownSeconds > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant, animationSpec = tween(500, easing = LinearOutSlowInEasing), label = "")
@@ -309,7 +316,8 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
                         if (tunnelRunning) context.startService(Intent(context, TunnelService::class.java).apply { action = "STOP" })
                         else requestVpnAndStart()
                     },
-                shape = CircleShape, color = circleColor, shadowElevation = if (tunnelRunning) 24.dp else 8.dp
+                shape = CircleShape, color = circleColor, shadowElevation = if (tunnelRunning) 22.dp else 7.dp,
+                tonalElevation = if (tunnelRunning) 8.dp else 2.dp
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     if (cooldownSeconds > 0 && !tunnelRunning) {
@@ -686,8 +694,19 @@ fun SpeedGraphCard(isRunning: Boolean, currentSpeedBytes: Long, modifier: Modifi
     LaunchedEffect(currentSpeedBytes, isRunning) { points.removeAt(0); points.add(if (isRunning) currentSpeedBytes.toFloat() else 0f) }
     val maxPoint by remember(points) { derivedStateOf { (points.maxOrNull() ?: 1f).coerceAtLeast(1024 * 50f) } }
 
-    Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(modifier = Modifier.padding(20.dp)) {
+    val container = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.primaryContainer, 0.08f)
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(26.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f)),
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .background(Brush.verticalGradient(listOf(container, MaterialTheme.colorScheme.surfaceContainer)))
+                .padding(20.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.QueryStats, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
@@ -720,10 +739,22 @@ fun SpeedGraphCard(isRunning: Boolean, currentSpeedBytes: Long, modifier: Modifi
 
 @Composable
 fun DashboardCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.Center) {
+    val container = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.primaryContainer, 0.10f)
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)),
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .background(Brush.verticalGradient(listOf(container, MaterialTheme.colorScheme.surfaceContainer)))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(34.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
                     Icon(icon, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
                 Spacer(Modifier.width(8.dp))

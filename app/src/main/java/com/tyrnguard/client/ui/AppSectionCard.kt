@@ -22,9 +22,9 @@ private fun appSectionCardColor(): Color {
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
     return if (isDark) {
-        lerp(colors.surface, colors.surfaceVariant, 0.10f)
+        lerp(colors.surfaceContainerHigh, colors.primaryContainer, 0.07f)
     } else {
-        lerp(colors.surface, colors.surfaceVariant, 0.28f)
+        lerp(colors.surfaceContainerHigh, colors.primaryContainer, 0.10f)
     }
 }
 
@@ -47,11 +47,11 @@ fun AppSectionCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(24.dp),
         color = appSectionCardColor(),
         contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, appSectionCardBorderColor()),
-        shadowElevation = if (MaterialTheme.colorScheme.background.luminance() < 0.22f) 2.dp else 10.dp,
+        shadowElevation = if (MaterialTheme.colorScheme.background.luminance() < 0.22f) 1.dp else 6.dp,
         tonalElevation = if (MaterialTheme.colorScheme.background.luminance() < 0.22f) 0.dp else 2.dp,
         modifier = modifier.fillMaxWidth()
     ) {
