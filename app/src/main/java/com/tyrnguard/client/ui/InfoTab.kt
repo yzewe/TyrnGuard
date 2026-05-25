@@ -1,431 +1,902 @@
 package com.tyrnguard.client.ui
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.util.Base64
+import android.os.Build
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Update
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tyrnguard.client.BuildConfig
+import com.tyrnguard.client.R
 import com.tyrnguard.client.SettingsStore
-import com.tyrnguard.client.TunnelManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
+import com.tyrnguard.client.UPDATE_DIALOG_ACTION_POSTPONED
+import com.tyrnguard.client.UPDATE_DIALOG_ACTION_UPDATE
+import com.tyrnguard.client.TyrnGuardColors
+import com.tyrnguard.client.fetchLatestReleaseInfo
+import com.tyrnguard.client.isNewerVersion
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.UUID
-import kotlin.math.roundToInt
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
+
+private const val ReleasesUrl = "https://github.com/amurcanov/proxy-turn-vk-android/releases"
+private const val IssuesUrl = "https://github.com/amurcanov/proxy-turn-vk-android/issues/new"
+private const val DeveloperProfileUrl = "https://github.com/amurcanov"
+private const val RepositoryUrl = "https://github.com/amurcanov/proxy-turn-vk-android"
+private const val DonateUrl = ""
+private val DonateActionButtonColor = Color(0xFF00AEA5)
+
+private val browserPackages = listOf(
+    "com.android.chrome",
+    "com.google.android.googlequicksearchbox",
+    "org.mozilla.firefox",
+    "com.yandex.browser",
+    "ru.yandex.searchplugin",
+    "com.yandex.browser.lite",
+    "com.opera.browser",
+    "com.opera.mini.native",
+    "com.microsoft.emmx",
+    "com.brave.browser",
+    "com.duckduckgo.mobile.android",
+    "com.sec.android.app.sbrowser",
+    "com.vivaldi.browser",
+    "com.kiwibrowser.browser",
+)
+
+private val Android16BlobShape: Shape = GenericShape { size, _ ->
+    val centerX = size.width / 2f
+    val centerY = size.height / 2f
+    val outerRadius = min(size.width, size.height) / 2f
+    val innerRadius = outerRadius * 0.92f
+    val points = 14
+
+    for (i in 0 until points * 2) {
+        val angle = (-PI / 2.0) + (i * PI / points)
+        val radius = if (i % 2 == 0) outerRadius else innerRadius
+        val x = centerX + (radius * cos(angle)).toFloat()
+        val y = centerY + (radius * sin(angle)).toFloat()
+        if (i == 0) moveTo(x, y) else lineTo(x, y)
+    }
+    close()
+}
+
+private fun openUrlInBrowser(context: Context, url: String) {
+    try {
+        val pm = context.packageManager
+        val uri = Uri.parse(url)
+        for (pkg in browserPackages) {
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+                setPackage(pkg)
+            }
+            if (intent.resolveActivity(pm) != null) {
+                context.startActivity(intent)
+                return
+            }
+        }
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply { addCategory(Intent.CATEGORY_BROWSABLE) }
+        if (intent.resolveActivity(pm) != null) context.startActivity(intent)
+    } catch (_: Exception) {
+    }
+}
 
 @Composable
 fun InfoTab() {
-    var currentScreen by rememberSaveable { mutableStateOf("main") }
-
-    BackHandler(enabled = currentScreen != "main") { currentScreen = "main" }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedContent(
-            targetState = currentScreen,
-            transitionSpec = {
-                val animationSpec = spring<IntOffset>(stiffness = Spring.StiffnessMedium)
-                if (targetState != "main") {
-                    slideInHorizontally(animationSpec) { it } + fadeIn() togetherWith slideOutHorizontally(animationSpec) { -it / 2 } + fadeOut()
-                } else {
-                    slideInHorizontally(animationSpec) { -it / 2 } + fadeIn() togetherWith slideOutHorizontally(animationSpec) { it } + fadeOut()
-                }
-            },
-            label = "settings_navigation"
-        ) { screen ->
-            when (screen) {
-                "main" -> MainSettingsMenu { currentScreen = it }
-                "network" -> NetworkSettings { currentScreen = "main" }
-                "performance" -> PerformanceSettings { currentScreen = "main" }
-                "interface" -> InterfaceSettings { currentScreen = "main" }
-            }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settingsStore = remember { SettingsStore(context) }
+    val currentVersion = remember { "v${BuildConfig.VERSION_NAME.removePrefix("v")}" }
+    var isCheckingUpdates by remember { mutableStateOf(false) }
+    var pendingManualRelease by remember { mutableStateOf<com.tyrnguard.client.AppReleaseInfo?>(null) }
+    var showHelpDialog by remember { mutableStateOf(false) }
+    var showDonateDialog by remember { mutableStateOf(false) }
+    var actionsExpanded by rememberSaveable { mutableStateOf(true) }
+    var projectExpanded by rememberSaveable { mutableStateOf(true) }
+    val updateLatestVersion by settingsStore.updateLatestVersion.collectAsStateWithLifecycle(initialValue = "")
+    val updateLastError by settingsStore.updateLastError.collectAsStateWithLifecycle(initialValue = "")
+    val updateStatus = remember(isCheckingUpdates, updateLatestVersion, updateLastError, currentVersion) {
+        when {
+            isCheckingUpdates -> "Проверяем GitHub releases..."
+            updateLatestVersion.isNotBlank() && isNewerVersion(currentVersion, updateLatestVersion) ->
+                "На GitHub доступна версия $updateLatestVersion"
+            updateLatestVersion.isNotBlank() -> "Последняя версия: $updateLatestVersion"
+            updateLastError.isNotBlank() -> "Последняя проверка завершилась ошибкой"
+            else -> "Проверить GitHub вручную"
         }
     }
-}
 
-@Composable
-fun MainSettingsMenu(onNavigate: (String) -> Unit) {
-    val context = LocalContext.current
-    val settingsStore = remember { SettingsStore(context) }
-    val scope = rememberCoroutineScope()
-    val currentPeer by settingsStore.peer.collectAsStateWithLifecycle("")
-    var showImportantInfoDialog by remember { mutableStateOf(false) }
-
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-        
-        MenuCategoryItem("Сеть", "Протокол, MTU, DNS", Icons.Default.Language) { onNavigate("network") }
-        MenuCategoryItem("Производительность", "Ключи, Потоки, Капча", Icons.Default.Speed) { onNavigate("performance") }
-        MenuCategoryItem("Интерфейс", "Темы, Цвета, Отклик", Icons.Default.Palette) { onNavigate("interface") }
-        
-        CategoryCard("Синхронизация", Icons.Default.Share) {
-            Text("Импорт запустит настройку по ссылке из буфера обмена.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(20.dp),
-                    onClick = {
-                        val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        val text = cb.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-                        if (text.contains("tyrnguard://config?data=")) {
-                            try {
-                                val json = JSONObject(String(Base64.decode(text.substringAfter("data="), Base64.URL_SAFE)))
-                                scope.launch { addServerToStoreDirect(context, settingsStore, json) }
-                            } catch (e: Exception) { Toast.makeText(context, "Ошибка чтения ссылки", Toast.LENGTH_SHORT).show() }
-                        } else Toast.makeText(context, "Ссылка не найдена в буфере", Toast.LENGTH_SHORT).show()
-                    }
-                ) {
-                    Icon(Icons.Default.ContentPasteGo, null); Spacer(Modifier.width(8.dp)); Text("Импорт", fontSize = 16.sp)
-                }
-
-                FilledTonalButton(
-                    modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(20.dp),
-                    onClick = {
-                        scope.launch {
-                            val serversJson = settingsStore.savedServersJson.first()
-                            if (currentPeer.isBlank() || serversJson.isBlank()) { 
-                                Toast.makeText(context, "Сначала выберите сервер на главном экране", Toast.LENGTH_SHORT).show(); return@launch 
-                            }
-                            val servers = JSONArray(serversJson)
-                            var activeObj: JSONObject? = null
-                            for (i in 0 until servers.length()) { if (servers.getJSONObject(i).optString("ip") == currentPeer) { activeObj = servers.getJSONObject(i); break } }
-                            if (activeObj == null) { Toast.makeText(context, "Активный сервер не найден", Toast.LENGTH_SHORT).show(); return@launch }
-                            
-                            val b64 = Base64.encodeToString(activeObj.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)
-                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Конфигурация TyrnGuard:\n\ntyrnguard://config?data=$b64") }, "Поделиться конфигурацией"))
-                        }
-                    }
-                ) {
-                    Icon(Icons.Default.IosShare, null); Spacer(Modifier.width(8.dp)); Text("Экспорт", fontSize = 16.sp)
-                }
-            }
-        }
-        CategoryCard("О приложении", Icons.Default.Info) {
-            SettingClickRow(Icons.Default.HelpOutline, "Важная информация", "Справка по работе приложения") { showImportantInfoDialog = true }
-            Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            SettingClickRow(Icons.Default.Code, "GitHub (Форк)", "Исходный код этого приложения") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yzewe/TyrnGuard"))) }
-            Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            SettingClickRow(Icons.Default.CodeOff, "GitHub (Оригинал)", "Оригинальный репозиторий проекта") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/amurcanov/proxy-turn-vk-android"))) }
-        }
-        
-        Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Версия 1.0.6 (Stable)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline, fontSize = 14.sp)
-            FilledTonalButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://yzewe.ru"))) }, shape = RoundedCornerShape(16.dp)) {
-                Text("Форк от yzewe", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
-        }
-    }
-    if (showImportantInfoDialog) ImportantInfoDialog { showImportantInfoDialog = false }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun NetworkSettings(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val settingsStore = remember { SettingsStore(context) }
-    val scope = rememberCoroutineScope()
-    val haptic = LocalHapticFeedback.current
-
-    val protocol by settingsStore.protocol.collectAsStateWithLifecycle("udp")
-    val customMtu by settingsStore.customMtu.collectAsStateWithLifecycle(0)
-    val dnsType by settingsStore.customDns.collectAsStateWithLifecycle("default")
-    val customDnsIp by settingsStore.customDnsIp.collectAsStateWithLifecycle("1.1.1.1")
-    val currentPeer by settingsStore.peer.collectAsStateWithLifecycle("")
-    val currentHashes by settingsStore.vkHashes.collectAsStateWithLifecycle("")
-    val workersCount by settingsStore.workersPerHash.collectAsStateWithLifecycle(24)
-
-    var lastMtu by remember(customMtu) { mutableIntStateOf(customMtu) }
-
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("Сеть", onBack)
-        CategoryCard("Транспорт", Icons.Default.CompareArrows) {
-            Text("Сетевой протокол", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(Modifier.height(12.dp))
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("udp" to "UDP", "tcp" to "TCP").forEachIndexed { i, (v, l) ->
-                    SegmentedButton(
-                        selected = protocol == v, shape = SegmentedButtonDefaults.itemShape(index = i, count = 2),
-                        onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); scope.launch { settingsStore.save(currentPeer, currentHashes, "", workersCount, v, 9000, "") } }
-                    ) { Text(l, fontSize = 14.sp) }
-                }
-            }
-            Divider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Размер пакета (MTU)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                AnimatedContent(targetState = customMtu, label = "") { mtu -> Text(if (mtu == 0) "Авто" else "$mtu", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-            }
-            Slider(
-                value = if (customMtu == 0) 1279f else customMtu.toFloat(),
-                onValueChange = {
-                    val v = if (it < 1280f) 0 else it.roundToInt()
-                    if (kotlin.math.abs(v - lastMtu) > 5 || (v == 0 && lastMtu != 0)) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); lastMtu = v }
-                    scope.launch { settingsStore.saveCustomMtu(v) }
-                },
-                onValueChangeFinished = { scope.launch { TunnelManager.reloadWireGuard() } }, valueRange = 1279f..1500f
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 28.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Информация",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
             )
-            Text("Меньшее значение может помочь при плохой связи. Оптимально: 1280-1420.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
         }
-        CategoryCard("DNS Сервер", Icons.Default.Dns) {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("default" to "Авто", "adguard" to "AdGuard", "cloudflare" to "Cloudflare", "custom" to "Свой").forEachIndexed { i, (v, l) ->
-                    SegmentedButton(
-                        selected = dnsType == v, shape = SegmentedButtonDefaults.itemShape(index = i, count = 4),
-                        onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); scope.launch { settingsStore.saveCustomDns(v); TunnelManager.reloadWireGuard() } }
-                    ) { Text(l, fontSize = 11.sp, maxLines = 1) }
-                }
-            }
-            AnimatedVisibility(visible = dnsType == "custom", enter = expandVertically(spring(stiffness = Spring.StiffnessMedium)) + fadeIn(), exit = shrinkVertically(spring(stiffness = Spring.StiffnessMedium)) + fadeOut()) {
-                OutlinedTextField(
-                    value = customDnsIp,
-                    onValueChange = { scope.launch { settingsStore.saveCustomDnsIp(it.trim()) } },
-                    label = { Text("IP адрес DNS сервера") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                    shape = RoundedCornerShape(20.dp)
+
+        InfoHeroCard(currentVersion = currentVersion, onSupportClick = { showDonateDialog = true })
+
+        ExpandableSectionCard(
+            title = "Действия",
+            itemCount = "4 пункта",
+            expanded = actionsExpanded,
+            onToggle = { actionsExpanded = !actionsExpanded },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
                 )
             }
-            Text(when(dnsType) { "adguard" -> "Блокирует рекламу и трекеры на уровне пакетов."; "cloudflare" -> "Самый быстрый и приватный DNS."; "custom" -> "Впишите IP-адрес предпочитаемого DNS."; else -> "Использовать DNS провайдера или сервера." }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp), fontSize = 14.sp)
-        }
-    }
-}
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                InfoActionTile(
+                    title = "Поднять вопрос",
+                    subtitle = "Открыть GitHub issue",
+                    modifier = Modifier.weight(1f),
+                    onClick = { openUrlInBrowser(context, IssuesUrl) },
+                    icon = {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_github),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                )
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PerformanceSettings(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val settingsStore = remember { SettingsStore(context) }
-    val scope = rememberCoroutineScope()
-    val haptic = LocalHapticFeedback.current
+                InfoActionTile(
+                    title = "Собрать отчёт",
+                    subtitle = "Android, ABI, версия, устройство",
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        val clipboard = context.getSystemService(ClipboardManager::class.java)
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("TyrnGuard Report", buildSupportReport()))
+                        Toast.makeText(context, "Отчёт сформирован и скопирован", Toast.LENGTH_SHORT).show()
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                )
+            }
 
-    val workersCount by settingsStore.workersPerHash.collectAsStateWithLifecycle(24)
-    val captchaMethod by settingsStore.captchaSolveMethod.collectAsStateWithLifecycle("manual")
-    val currentHashesFromStore by settingsStore.vkHashes.collectAsStateWithLifecycle("")
-    val protocol by settingsStore.protocol.collectAsStateWithLifecycle("udp")
-    val currentPeer by settingsStore.peer.collectAsStateWithLifecycle("")
-
-    var hashesList by remember { mutableStateOf(listOf("")) }
-    LaunchedEffect(currentHashesFromStore) { hashesList = currentHashesFromStore.split(",").map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf("") } }
-
-    fun updateHashes(newList: List<String>) {
-        hashesList = newList
-        scope.launch { settingsStore.save(currentPeer, newList.map { it.trim() }.filter { it.isNotEmpty() }.joinToString(","), "", workersCount, protocol, 9000, "") }
-    }
-    
-    var lastWorkerCount by remember(workersCount) { mutableIntStateOf(workersCount) }
-
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("Производительность", onBack)
-        CategoryCard("VK Ключи (Hashes)", Icons.Default.VpnKey) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                hashesList.forEachIndexed { index, hash ->
-                    OutlinedTextField(
-                        value = hash,
-                        onValueChange = { val l = hashesList.toMutableList(); l[index] = it; updateHashes(l) },
-                        label = { Text("Ключ ${index + 1}") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), singleLine = true,
-                        trailingIcon = { if (hashesList.size > 1) IconButton(onClick = { val l = hashesList.toMutableList(); l.removeAt(index); updateHashes(l) }) { Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) } }
+            WideActionTile(
+                title = "Справка",
+                subtitle = "Коротко про VPN, исключения, капчу и запуск",
+                onClick = { showHelpDialog = true },
+                icon = {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
-                if (hashesList.size < 3 && hashesList.last().isNotEmpty()) {
-                    FilledTonalButton(onClick = { updateHashes(hashesList + "") }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Default.Add, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Добавить ключ")
+            )
+
+            WideActionTile(
+                title = "Проверить обновления",
+                subtitle = updateStatus,
+                onClick = {
+                    if (isCheckingUpdates) return@WideActionTile
+                    isCheckingUpdates = true
+                    scope.launch {
+                        val checkedAt = System.currentTimeMillis()
+                        val release = fetchLatestReleaseInfo(currentVersion)
+                        val latest = release?.versionTag
+                        settingsStore.saveUpdateState(
+                            lastCheckAt = checkedAt,
+                            latestVersion = latest ?: "",
+                            error = if (release == null) "Не удалось проверить" else ""
+                        )
+                        isCheckingUpdates = false
+
+                        if (release == null) {
+                            val message = if (updateLatestVersion.isNotBlank()) {
+                                "Не удалось проверить. Последняя известная версия: $updateLatestVersion"
+                            } else {
+                                "Не удалось проверить обновления"
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+
+                        if (isNewerVersion(currentVersion, release.versionTag)) {
+                            settingsStore.saveUpdateDialogShown(release.versionTag, checkedAt)
+                            pendingManualRelease = release
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "У вас уже последняя версия: ${release.versionTag}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Update,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            )
+        }
+
+        pendingManualRelease?.let { release ->
+            AppUpdateDialog(
+                release = release,
+                onPostpone = {
+                    pendingManualRelease = null
+                    Toast.makeText(context, "Обновление отложено на 24 часа.", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        val now = System.currentTimeMillis()
+                        settingsStore.saveUpdatePostpone(
+                            version = release.versionTag,
+                            until = now + 24L * 60L * 60L * 1000L
+                        )
+                        settingsStore.saveUpdateDialogAction(
+                            version = release.versionTag,
+                            action = UPDATE_DIALOG_ACTION_POSTPONED,
+                            actedAt = now
+                        )
+                    }
+                },
+                onUpdate = {
+                    pendingManualRelease = null
+                    scope.launch {
+                        settingsStore.saveUpdateDialogAction(
+                            version = release.versionTag,
+                            action = UPDATE_DIALOG_ACTION_UPDATE,
+                            actedAt = System.currentTimeMillis()
+                        )
+                        openUrlInBrowser(context, release.releaseUrl)
                     }
                 }
-            }
-        }
-        CategoryCard("Нагрузка", Icons.Default.Memory) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Потоки обработки", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                AnimatedContent(targetState = workersCount, label = "") { wc -> Text("$wc", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-            }
-            Slider(
-                value = workersCount.toFloat(),
-                onValueChange = {
-                    val clamped = ((it / 12).roundToInt() * 12).coerceIn(12, 72)
-                    if (clamped != lastWorkerCount) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); lastWorkerCount = clamped }
-                    scope.launch { settingsStore.save(currentPeer, currentHashesFromStore, "", clamped, protocol, 9000, "") }
-                }, valueRange = 12f..72f, steps = 4
-            )
-            Text("Больше потоков — выше скорость, но сильнее расход батареи.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
-        }
-        CategoryCard("Решение капчи", Icons.Default.SmartToy) {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("manual" to "WebView (Надежно)", "auto" to "RJS (Автомат)").forEachIndexed { i, (v, l) ->
-                    SegmentedButton(
-                        selected = captchaMethod == v, shape = SegmentedButtonDefaults.itemShape(index = i, count = 2),
-                        onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); scope.launch { settingsStore.saveCaptchaMode(if (v == "auto") "rjs" else "wv"); settingsStore.saveCaptchaSolveMethod(v) } }
-                    ) { Text(l, fontSize = 14.sp) }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun InterfaceSettings(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val settingsStore = remember { SettingsStore(context) }
-    val scope = rememberCoroutineScope()
-    val haptic = LocalHapticFeedback.current
-
-    val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle("system")
-    val dynamicColor by settingsStore.useDynamicColor.collectAsStateWithLifecycle(true)
-
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("Интерфейс", onBack)
-        CategoryCard("Внешний вид", Icons.Default.Palette) {
-            Text("Тема оформления", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(Modifier.height(12.dp))
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("system" to "Авто", "light" to "Светлая", "dark" to "Темная", "amoled" to "Amoled").forEachIndexed { i, (v, l) ->
-                    SegmentedButton(
-                        selected = themeMode == v, shape = SegmentedButtonDefaults.itemShape(index = i, count = 4),
-                        onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); scope.launch { settingsStore.saveThemeMode(v) } }
-                    ) { Text(l, fontSize = 12.sp, maxLines = 1) }
-                }
-            }
-            Divider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            SettingSwitchRow(
-                icon = Icons.Default.ColorLens,
-                title = "Dynamic Colors",
-                subtitle = "Использовать цвета обоев системы",
-                checked = dynamicColor,
-                enabled = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S,
-                onCheckedChange = { scope.launch { settingsStore.saveDynamicColor(it) } }
             )
         }
-    }
-}
 
-suspend fun addServerToStoreDirect(context: Context, settingsStore: SettingsStore, json: JSONObject) {
-    val ip = json.optString("ip", "").trim()
-    val name = json.optString("name", "Импортированный сервер").trim()
-    val pass = json.optString("password", "").trim()
-    if (ip.isBlank()) return
-
-    val currentArray = try { JSONArray(settingsStore.savedServersJson.first()) } catch (e: Exception) { JSONArray() }
-    var existsIdx = -1
-    for (i in 0 until currentArray.length()) { if (currentArray.getJSONObject(i).optString("ip").trim() == ip) { existsIdx = i; break } }
-
-    val newObj = JSONObject().apply { put("id", if (existsIdx != -1) currentArray.getJSONObject(existsIdx).getString("id") else UUID.randomUUID().toString()); put("name", name); put("ip", ip); put("password", pass) }
-    if (existsIdx != -1) currentArray.put(existsIdx, newObj) else currentArray.put(newObj)
-    settingsStore.saveServersList(currentArray.toString())
-
-    withContext(Dispatchers.Main) { Toast.makeText(context, "Сервер '$name' ${if (existsIdx != -1) "обновлен" else "добавлен"}", Toast.LENGTH_SHORT).show() }
-}
-
-@Composable
-fun MenuCategoryItem(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(24.dp)) }
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+        ExpandableSectionCard(
+            title = "О проекте",
+            itemCount = "3 ссылки",
+            expanded = projectExpanded,
+            onToggle = { projectExpanded = !projectExpanded },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Code,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
             }
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline)
+        ) {
+            ProjectLinkRow(
+                title = "Автор Android-версии",
+                subtitle = "GitHub профиль amurcanov",
+                onClick = { openUrlInBrowser(context, DeveloperProfileUrl) },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
+
+            ProjectLinkRow(
+                title = "Репозиторий TyrnGuard",
+                subtitle = "Исходники и релизы приложения",
+                onClick = { openUrlInBrowser(context, RepositoryUrl) },
+                icon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_github),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
+
+            ProjectLinkRow(
+                title = "Актуальные релизы",
+                subtitle = "Страница загрузки APK",
+                onClick = { openUrlInBrowser(context, ReleasesUrl) },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Update,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
         }
+
+        Spacer(modifier = Modifier.height(20.dp))
     }
+
+    if (showHelpDialog) ImportantInfoDialog(onDismiss = { showHelpDialog = false })
+    if (showDonateDialog) DonateDialog(onDismiss = { showDonateDialog = false })
 }
 
 @Composable
-fun SettingsHeader(title: String, onBack: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
-        IconButton(onClick = onBack, modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.onSurface) }
-        Spacer(Modifier.width(16.dp)); Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+private fun InfoHeroCard(currentVersion: String, onSupportClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val isDark = colors.background.luminance() < 0.22f
+    val heroBrush = remember(colors.primaryContainer, colors.secondaryContainer, colors.surfaceVariant) {
+        Brush.linearGradient(
+            listOf(
+                colors.primaryContainer,
+                colors.secondaryContainer,
+                colors.surfaceVariant
+            )
+        )
     }
-}
+    val glassColor = if (isDark) colors.surface.copy(alpha = 0.46f) else Color.White.copy(alpha = 0.54f)
+    val glassBorder = colors.outlineVariant.copy(alpha = if (isDark) 0.50f else 0.32f)
 
-@Composable
-private fun CategoryCard(title: String, icon: ImageVector, content: @Composable ColumnScope.() -> Unit) {
-    Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(24.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 20.dp)) {
-                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(12.dp)); Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            }
-            content()
-        }
-    }
-}
-
-@Composable
-private fun SettingClickRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
-    val haptic = LocalHapticFeedback.current
-    Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() }.padding(horizontal = 8.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        shape = RoundedCornerShape(32.dp),
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 10.dp,
+        tonalElevation = 0.dp
     ) {
-        Box(modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp)) }
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) { 
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp) 
-        }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline)
-    }
-}
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(32.dp))
+                .background(heroBrush)
+                .padding(22.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 30.dp, y = (-34).dp)
+                    .size(138.dp)
+                    .clip(Android16BlobShape)
+                    .background(colors.primary.copy(alpha = 0.10f))
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 26.dp, y = 30.dp)
+                    .size(112.dp)
+                    .clip(Android16BlobShape)
+                    .background(colors.secondary.copy(alpha = 0.12f))
+            )
 
-@Composable
-private fun SettingSwitchRow(icon: ImageVector, title: String, subtitle: String, checked: Boolean, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
-    val haptic = LocalHapticFeedback.current
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 4.dp).alpha(if(enabled) 1f else 0.5f), verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp)) }
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) { 
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp) 
-        }
-        Switch(checked = checked, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onCheckedChange(it) }, enabled = enabled)
-    }
-}
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HeroMetaPill(
+                        text = "TyrnGuard",
+                        containerColor = glassColor,
+                        borderColor = glassBorder,
+                        modifier = Modifier.weight(1f)
+                    )
+                    HeroMetaPill(
+                        text = currentVersion,
+                        containerColor = colors.primary.copy(alpha = if (isDark) 0.18f else 0.10f),
+                        borderColor = colors.primary.copy(alpha = if (isDark) 0.22f else 0.14f),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
 
-@Composable
-fun ImportantInfoDialog(onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-            Column(modifier = Modifier.padding(28.dp).verticalScroll(rememberScrollState())) {
-                Text("Справка", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(20.dp))
-                Text("• RJS-Капча — автоматическое решение (экспериментально). В случае проблем верните WebView.\n\n• Ссылки (tyrnguard://) при экспорте содержат пароль от туннеля. Не передавайте их третьим лицам.\n\n• Если туннель подключается, но интернета нет — обновите VK Ключи.", style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp, fontSize = 16.sp)
-                Spacer(Modifier.height(32.dp))
-                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(24.dp)) { Text("Закрыть", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "TyrnGuard VPN Tunnel",
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.Black,
+                            fontSize = 30.sp,
+                            lineHeight = 34.sp
+                        ),
+                        color = colors.onSurface
+                    )
+                    Text(
+                        text = "Android-клиент для TURN/VK туннеля с WireGuard, капчей и управлением сервером.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        lineHeight = 21.sp
+                    )
+                }
+
+                Button(
+                    onClick = onSupportClick,
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DonateActionButtonColor,
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                ) {
+                    Icon(Icons.Default.Favorite, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Поддержать проект", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
             }
         }
     }
+}
+
+@Composable
+private fun HeroMetaPill(
+    text: String,
+    containerColor: Color,
+    borderColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = containerColor,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = modifier
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun ExpandableSectionCard(
+    title: String,
+    itemCount: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    icon: @Composable () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "section_arrow_rotation"
+    )
+
+    AppSectionCard(
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .clickable(onClick = onToggle)
+                .padding(vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) { icon() }
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            MetaChip(text = itemCount)
+
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(24.dp)
+                    .rotate(arrowRotation)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f))
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetaChip(text: String) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        contentColor = MaterialTheme.colorScheme.onSurface
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun InfoActionTile(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier
+            .clip(RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 116.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) { icon() }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WideActionTile(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 15.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) { icon() }
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProjectLinkRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Box(
+                    modifier = Modifier.defaultMinSize(minWidth = 40.dp, minHeight = 40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    icon()
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun DonateDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(32.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 10.dp,
+            shadowElevation = 14.dp,
+            modifier = Modifier.fillMaxWidth(0.92f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 22.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Поддержка проекта",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilledTonalIconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                    }
+                }
+
+                Text(
+                    text = "Если приложение реально помогает, можно поддержать Android-версию проекта.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+
+                Button(
+                    onClick = { openUrlInBrowser(context, DonateUrl) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(62.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TyrnGuardColors.donate,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_yoomoney),
+                        contentDescription = "ЮMoney",
+                        tint = Color.Unspecified,
+                        modifier = Modifier
+                            .width(126.dp)
+                            .height(28.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun buildSupportReport(): String {
+    val androidVersion = Build.VERSION.RELEASE ?: "?"
+    val sdkInt = Build.VERSION.SDK_INT
+    val primaryAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty().ifBlank { "unknown" }
+    val supportedAbis = Build.SUPPORTED_ABIS.joinToString().ifBlank { "unknown" }
+    val manufacturer = Build.MANUFACTURER.orEmpty().ifBlank { "unknown" }
+    val brand = Build.BRAND.orEmpty().ifBlank { "unknown" }
+    val model = Build.MODEL.orEmpty().ifBlank { "unknown" }
+    val device = Build.DEVICE.orEmpty().ifBlank { "unknown" }
+    val product = Build.PRODUCT.orEmpty().ifBlank { "unknown" }
+    val hardware = Build.HARDWARE.orEmpty().ifBlank { "unknown" }
+    val board = Build.BOARD.orEmpty().ifBlank { "unknown" }
+    val romDisplay = Build.DISPLAY.orEmpty().ifBlank { "unknown" }
+    val buildId = Build.ID.orEmpty().ifBlank { "unknown" }
+    val buildFingerprint = Build.FINGERPRINT.orEmpty().ifBlank { "unknown" }
+    val buildType = Build.TYPE.orEmpty().ifBlank { "unknown" }
+    val socManufacturer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        Build.SOC_MANUFACTURER.orEmpty().ifBlank { "unknown" }
+    } else {
+        "n/a"
+    }
+    val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        Build.SOC_MODEL.orEmpty().ifBlank { "unknown" }
+    } else {
+        "n/a"
+    }
+
+    return buildString {
+        appendLine("Версия приложения: ${BuildConfig.VERSION_NAME}")
+        appendLine("Андроид: $androidVersion (SDK $sdkInt)")
+        appendLine("Устройство: $manufacturer / $brand / $model")
+        appendLine("Код устройства: $device")
+        appendLine("Продукт: $product")
+        appendLine("ABI: $primaryAbi")
+        appendLine("Все ABI: $supportedAbis")
+        appendLine("SoC: $socManufacturer / $socModel")
+        appendLine("Hardware: $hardware")
+        appendLine("Board: $board")
+        appendLine("ROM: $romDisplay")
+        appendLine("Build ID: $buildId")
+        appendLine("Build type: $buildType")
+        appendLine("Fingerprint: $buildFingerprint")
+    }.trim()
 }

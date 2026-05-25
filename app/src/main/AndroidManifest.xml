@@ -4,7 +4,6 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -16,13 +15,14 @@
 
     <application
         tools:ignore="ExtractNativeLibs"
-        android:name=".WdttApplication"
+        android:name=".TyrnGuardApplication"
         android:allowBackup="false"
         android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="TyrnGuard" 
+        android:label="TyrnGuard"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.TyrnGuard"> 
+        android:theme="@style/Theme.TyrnGuard">
 
         <activity
             android:name=".MainActivity"
@@ -37,7 +37,6 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- ИЗМЕНЕНО: Схема для импорта конфигов -->
                 <data android:scheme="tyrnguard" android:host="config" />
             </intent-filter>
         </activity>
@@ -45,14 +44,29 @@
         <service
             android:name=".TunnelService"
             android:exported="false"
-            android:foregroundServiceType="dataSync"
-            android:stopWithTask="false" />
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="persistent_vpn_tunnel_transport" />
+        </service>
+
+        <activity
+            android:name=".ManlCaptchaActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false" />
+
+        <receiver
+            android:name=".CaptchaCancelReceiver"
+            android:exported="false" />
 
         <service
             android:name=".WdttTileService"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
-            android:label="TyrnGuard" 
+            android:label="TyrnGuard"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
@@ -79,17 +93,6 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-
-        <activity
-            android:name=".ManlCaptchaActivity"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:excludeFromRecents="true"
-            android:launchMode="singleTop"
-            android:exported="false" />
-
-        <receiver
-            android:name=".CaptchaCancelReceiver"
-            android:exported="false" />
             
     </application>
 

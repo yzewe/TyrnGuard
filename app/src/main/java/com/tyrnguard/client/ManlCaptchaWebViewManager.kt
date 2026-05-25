@@ -172,9 +172,9 @@ class ManlCaptchaActivity : ComponentActivity() {
                     try {
                         const data = await clone.json();
                         if (data.response && data.response.success_token) {
-                            window.WdttCaptcha.onSuccess(data.response.success_token);
+                            window.TyrnGuardCaptcha.onSuccess(data.response.success_token);
                         } else if (data.error) {
-                            window.WdttCaptcha.onError(JSON.stringify(data.error));
+                            window.TyrnGuardCaptcha.onError(JSON.stringify(data.error));
                         }
                     } catch(e) {}
                     return response;
@@ -195,9 +195,9 @@ class ManlCaptchaActivity : ComponentActivity() {
                         try {
                             const data = JSON.parse(xhr.responseText);
                             if (data.response && data.response.success_token) {
-                                window.WdttCaptcha.onSuccess(data.response.success_token);
+                                window.TyrnGuardCaptcha.onSuccess(data.response.success_token);
                             } else if (data.error) {
-                                window.WdttCaptcha.onError(JSON.stringify(data.error));
+                                window.TyrnGuardCaptcha.onError(JSON.stringify(data.error));
                             }
                         } catch(e) {}
                     });
@@ -212,7 +212,7 @@ class ManlCaptchaActivity : ComponentActivity() {
             // Перехватываем клик по нативному крестику ВК, чтобы закрывать Android Activity и останавливать туннель
             document.addEventListener('click', function(e) {
                 if (e.target.closest('.vkc__ModalCardBase-module__dismiss')) {
-                    window.WdttCaptcha.onCancelAndStop();
+                    window.TyrnGuardCaptcha.onCancelAndStop();
                 }
             });
 
@@ -332,7 +332,7 @@ class ManlCaptchaActivity : ComponentActivity() {
                                         ManlCaptchaWebViewManager.notifyResult(Result.failure(Exception("Cancelled and stopped by user")))
                                         finish()
                                     }
-                                }, "WdttCaptcha")
+                                }, "TyrnGuardCaptcha")
 
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {

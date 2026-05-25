@@ -3,15 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/cipher"
 	"crypto/rand"
-	"crypto/tls"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
-	mrand "math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -27,24 +30,29 @@ import (
 
 	"github.com/pion/dtls/v3"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
+	"golang.org/x/crypto/hkdf"
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
+
+	dtlsnet "github.com/pion/dtls/v3/pkg/net"
+	pionudp "github.com/pion/transport/v4/udp"
 )
 
 const (
-	wgIfaceName    = "wg0"
-	wgServerAddr   = "10.66.66.1"
-	wgClientAddr   = "10.66.66.2"
-	wgClientCIDR   = wgClientAddr + "/32"
-	wgServerCIDR   = wgServerAddr + "/24"
-	internalWGPort = 56001
-	dns            = "1.1.1.1"
-	wgMTU          = 1280
-	keepalive      = 25
+	wgIfaceName           = "wdtt0"
+	wgServerAddr          = "10.66.66.1"
+	wgClientAddr          = "10.66.66.2"
+	wgClientCIDR          = wgClientAddr + "/32"
+	wgServerCIDR          = wgServerAddr + "/24"
+	defaultInternalWGPort = 56001
+	dns                   = "1.1.1.1"
+	wgMTU                 = 1280
+	keepalive             = 25
 )
 
 // ==================== База данных и Бот ====================
@@ -89,14 +97,187 @@ var (
 	dbFile  string
 )
 
-const passChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+var serverWrapKeys = newWrapKeyStore()
+
+const (
+	passChars             = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+	generatedPasswordLen  = 16
+	maxGeneratedPasswords = 10
+)
 
 func generatePassword() string {
-	b := make([]byte, 7)
-	for i := range b {
-		b[i] = passChars[mrand.Intn(len(passChars))]
+	b := make([]byte, generatedPasswordLen)
+	randomBytes := make([]byte, len(b))
+	if _, err := rand.Read(randomBytes); err != nil {
+		now := time.Now().UnixNano()
+		for i := range b {
+			b[i] = passChars[int(now+int64(i))%len(passChars)]
+		}
+		return string(b)
+	}
+	for i, raw := range randomBytes {
+		b[i] = passChars[int(raw)%len(passChars)]
 	}
 	return string(b)
+}
+
+type wrapKeyEntry struct {
+	id  string
+	key []byte
+}
+
+type wrapKeyStore struct {
+	mu      sync.RWMutex
+	entries []wrapKeyEntry
+}
+
+func newWrapKeyStore() *wrapKeyStore {
+	return &wrapKeyStore{}
+}
+
+func deriveWrapKey(password string) ([]byte, error) {
+	if password == "" {
+		return nil, errors.New("empty password")
+	}
+	key := make([]byte, wrapKeyLen)
+	reader := hkdf.New(
+		sha256.New,
+		[]byte(password),
+		[]byte("WDTT-WRAP-v1"),
+		[]byte("rtp-obfs/chacha20poly1305"),
+	)
+	if _, err := io.ReadFull(reader, key); err != nil {
+		return nil, fmt.Errorf("derive wrap key: %w", err)
+	}
+	return key, nil
+}
+
+func wrapKeyID(password string) string {
+	sum := sha256.Sum256([]byte("WDTT-WRAP-ID-v1\x00" + password))
+	return hex.EncodeToString(sum[:8])
+}
+
+func zeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
+func (s *wrapKeyStore) SetPasswords(mainPassword string, generated []string) error {
+	next := make([]wrapKeyEntry, 0, len(generated)+1)
+	seen := make(map[string]struct{}, len(generated)+1)
+
+	if mainPassword != "" {
+		key, err := deriveWrapKey(mainPassword)
+		if err != nil {
+			return err
+		}
+		next = append(next, wrapKeyEntry{id: "main", key: key})
+		seen["main"] = struct{}{}
+	}
+
+	for _, password := range generated {
+		if password == "" {
+			continue
+		}
+		id := "pass:" + wrapKeyID(password)
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		key, err := deriveWrapKey(password)
+		if err != nil {
+			for _, entry := range next {
+				zeroBytes(entry.key)
+			}
+			return err
+		}
+		next = append(next, wrapKeyEntry{id: id, key: key})
+		seen[id] = struct{}{}
+	}
+
+	s.mu.Lock()
+	old := s.entries
+	s.entries = next
+	s.mu.Unlock()
+	for _, entry := range old {
+		zeroBytes(entry.key)
+	}
+	return nil
+}
+
+func (s *wrapKeyStore) AddPassword(password string) error {
+	key, err := deriveWrapKey(password)
+	if err != nil {
+		return err
+	}
+	id := "pass:" + wrapKeyID(password)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, entry := range s.entries {
+		if entry.id == id {
+			zeroBytes(key)
+			return nil
+		}
+	}
+	s.entries = append(s.entries, wrapKeyEntry{id: id, key: key})
+	return nil
+}
+
+func (s *wrapKeyStore) RemovePassword(password string) {
+	id := "pass:" + wrapKeyID(password)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, entry := range s.entries {
+		if entry.id != id {
+			continue
+		}
+		zeroBytes(entry.key)
+		copy(s.entries[i:], s.entries[i+1:])
+		s.entries[len(s.entries)-1] = wrapKeyEntry{}
+		s.entries = s.entries[:len(s.entries)-1]
+		return
+	}
+}
+
+func (s *wrapKeyStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.entries)
+}
+
+func (s *wrapKeyStore) Unwrap(raw, dst []byte) ([]byte, int, error) {
+	if !obfsIsRTPPacket(raw) {
+		return nil, 0, errors.New("wrap: non-obfs packet")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.entries) == 0 {
+		return nil, 0, errors.New("wrap: no active keys")
+	}
+	for _, entry := range s.entries {
+		aead, err := newObfsAEAD(entry.key)
+		if err != nil {
+			continue
+		}
+		m, err := obfsUnwrapPacket(aead, raw, dst)
+		if err == nil {
+			return append([]byte(nil), entry.key...), m, nil
+		}
+	}
+	return nil, 0, errors.New("wrap: auth failed")
+}
+
+func refreshWrapKeysFromDBLocked() error {
+	passwords := make([]string, 0, len(db.Passwords))
+	for password, entry := range db.Passwords {
+		if !isPasswordExpired(entry) {
+			passwords = append(passwords, password)
+		}
+	}
+	return serverWrapKeys.SetPasswords(db.MainPassword, passwords)
 }
 
 func initDB(dir, mainPass, adminID, botToken string) {
@@ -119,6 +300,9 @@ func initDB(dir, mainPass, adminID, botToken string) {
 	db.AdminID = adminID
 	db.BotToken = botToken
 	saveDB()
+	if err := refreshWrapKeysFromDBLocked(); err != nil {
+		log.Fatalf("[WRAP] init keys: %v", err)
+	}
 }
 
 func saveDB() {
@@ -127,6 +311,9 @@ func saveDB() {
 }
 
 func isPasswordExpired(entry *PasswordEntry) bool {
+	if entry == nil {
+		return true
+	}
 	if entry.ExpiresAt == 0 {
 		return false // бессрочный
 	}
@@ -222,7 +409,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					pass := strings.TrimPrefix(data, "viewpass_")
 					dbMutex.Lock()
 					entry, exists := db.Passwords[pass]
-					if !exists {
+					if !exists || entry == nil {
 						dbMutex.Unlock()
 						sendTelegram(token, adminID, "❌ Пароль не найден", nil)
 						continue
@@ -274,7 +461,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					pass := strings.TrimPrefix(data, "unbind_")
 					dbMutex.Lock()
 					entry, exists := db.Passwords[pass]
-					if exists && entry.DeviceID != "" {
+					if exists && entry != nil && entry.DeviceID != "" {
 						// Удаляем устройство из WG и из хранилища
 						dev, devExists := db.Devices[entry.DeviceID]
 						if devExists {
@@ -292,7 +479,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					pass := strings.TrimPrefix(data, "delpass_")
 					dbMutex.Lock()
 					entry, exists := db.Passwords[pass]
-					if exists && entry.DeviceID != "" {
+					if exists && entry != nil && entry.DeviceID != "" {
 						dev, devExists := db.Devices[entry.DeviceID]
 						if devExists {
 							pubHex, _ := b64ToHex(dev.PubKey)
@@ -301,6 +488,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 						}
 					}
 					delete(db.Passwords, pass)
+					serverWrapKeys.RemovePassword(pass)
 					saveDB()
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Пароль `%s` и его устройство удалены", pass), nil)
@@ -315,7 +503,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 						wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
 						// Очищаем привязку из пароля
 						for _, entry := range db.Passwords {
-							if entry.DeviceID == devID {
+							if entry != nil && entry.DeviceID == devID {
 								entry.DeviceID = ""
 							}
 						}
@@ -325,7 +513,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Устройство `%s` удалено", devID), nil)
 
 				} else if data == "backlist" {
-					sendPasswordList(token, adminID)
+					sendPasswordList(token, adminID, wgDev)
 				}
 			}
 
@@ -345,9 +533,34 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					sendTelegram(token, adminID, "❌ Неверное значение. Укажите число от 1 до 365, или отправьте /new заново.", nil)
 					continue
 				}
-				newPass := generatePassword()
 				expiresAt := time.Now().Add(time.Duration(days) * 24 * time.Hour).Unix()
 				dbMutex.Lock()
+				if cleanupExpiredPasswordsLocked(wgDev) > 0 {
+					saveDB()
+				}
+				if len(db.Passwords) >= maxGeneratedPasswords {
+					dbMutex.Unlock()
+					sendTelegram(token, adminID, fmt.Sprintf("❌ Лимит паролей: максимум %d активных. Удалите ненужный пароль через /list.", maxGeneratedPasswords), nil)
+					continue
+				}
+				newPass := ""
+				for i := 0; i < 10; i++ {
+					candidate := generatePassword()
+					if _, exists := db.Passwords[candidate]; !exists {
+						newPass = candidate
+						break
+					}
+				}
+				if newPass == "" {
+					dbMutex.Unlock()
+					sendTelegram(token, adminID, "❌ Не удалось создать уникальный пароль. Повторите /new.", nil)
+					continue
+				}
+				if err := serverWrapKeys.AddPassword(newPass); err != nil {
+					dbMutex.Unlock()
+					sendTelegram(token, adminID, "❌ Не удалось создать WRAP-ключ для пароля. Повторите /new.", nil)
+					continue
+				}
 				db.Passwords[newPass] = &PasswordEntry{ExpiresAt: expiresAt}
 				saveDB()
 				dbMutex.Unlock()
@@ -360,31 +573,110 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 				sendTelegram(token, adminID, "🤖 *WDTT VPN Manager*\n\n/new — Создать пароль\n/list — Список паролей", nil)
 
 			} else if cmd == "/new" {
+				dbMutex.Lock()
+				if cleanupExpiredPasswordsLocked(wgDev) > 0 {
+					saveDB()
+				}
+				if len(db.Passwords) >= maxGeneratedPasswords {
+					dbMutex.Unlock()
+					sendTelegram(token, adminID, fmt.Sprintf("❌ Лимит паролей: максимум %d активных. Удалите ненужный пароль через /list.", maxGeneratedPasswords), nil)
+					continue
+				}
+				dbMutex.Unlock()
 				waitingForDays = true
 				sendTelegram(token, adminID, "📅 Введите срок действия пароля в днях (1–365):\n\n_Примеры: 30 = месяц, 365 = год_", nil)
 
 			} else if cmd == "/list" {
-				sendPasswordList(token, adminID)
+				sendPasswordList(token, adminID, wgDev)
 			}
 		}
 	}
 }
 
-func sendPasswordList(token string, adminID int64) {
+func removePeerFromWG(wgDev *device.Device, dev *ClientDevice) {
+	if wgDev == nil || dev == nil || dev.PubKey == "" {
+		return
+	}
+	pubHex, err := b64ToHex(dev.PubKey)
+	if err != nil {
+		return
+	}
+	wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
+}
+
+func upsertPeerInWG(wgDev *device.Device, dev *ClientDevice) {
+	if wgDev == nil || dev == nil || dev.PubKey == "" || dev.IP == "" {
+		return
+	}
+	pubHex, err := b64ToHex(dev.PubKey)
+	if err != nil {
+		return
+	}
+	wgDev.IpcSet(fmt.Sprintf("public_key=%s\nallowed_ip=%s/32\n", pubHex, dev.IP))
+}
+
+func cleanupExpiredPasswordsLocked(wgDev *device.Device) int {
+	removed := 0
+	for p, entry := range db.Passwords {
+		if isPasswordExpired(entry) {
+			if entry != nil && entry.DeviceID != "" {
+				removePeerFromWG(wgDev, db.Devices[entry.DeviceID])
+				delete(db.Devices, entry.DeviceID)
+			}
+			delete(db.Passwords, p)
+			serverWrapKeys.RemovePassword(p)
+			removed++
+		}
+	}
+	return removed
+}
+
+func cleanupExpiredPasswords(wgDev *device.Device) int {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	removed := cleanupExpiredPasswordsLocked(wgDev)
+	if removed > 0 {
+		saveDB()
+	}
+	return removed
+}
+
+func expiredPasswordJanitor(ctx context.Context, wgDev *device.Device) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if removed := cleanupExpiredPasswords(wgDev); removed > 0 {
+				log.Printf("[DB] Удалено истёкших паролей: %d", removed)
+			}
+		}
+	}
+}
+
+func syncPersistedPeersToWG(wgDev *device.Device) {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	count := 0
+	for _, dev := range db.Devices {
+		upsertPeerInWG(wgDev, dev)
+		count++
+	}
+	if count > 0 {
+		log.Printf("[WG] Восстановлено сохранённых устройств: %d", count)
+	}
+}
+
+func sendPasswordList(token string, adminID int64, wgDev *device.Device) {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
 	// Очистка истёкших
-	for p, entry := range db.Passwords {
-		if isPasswordExpired(entry) {
-			// Удаляем привязанное устройство
-			if entry.DeviceID != "" {
-				delete(db.Devices, entry.DeviceID)
-			}
-			delete(db.Passwords, p)
-		}
+	if cleanupExpiredPasswordsLocked(wgDev) > 0 {
+		saveDB()
 	}
-	saveDB()
 
 	txt := "🔐 *Пароли:*\n\n"
 	txt += fmt.Sprintf("🔒 Главный: `%s` (владелец)\n\n", db.MainPassword)
@@ -394,6 +686,7 @@ func sendPasswordList(token string, adminID int64) {
 	if len(db.Passwords) == 0 {
 		txt += "_Нет сгенерированных паролей._\n"
 	} else {
+		txt += fmt.Sprintf("_Активно: %d/%d_\n\n", len(db.Passwords), maxGeneratedPasswords)
 		for p, entry := range db.Passwords {
 			status := "🟢"
 			if entry.DeviceID != "" {
@@ -576,12 +869,22 @@ func runCmdSilent(name string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func commandExists(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func isNetTimeout(err error) bool {
+	ne, ok := err.(net.Error)
+	return ok && ne.Timeout()
+}
+
 func getDefaultInterface() string {
 	out := runCmdSilent("bash", "-c", "ip route show default | awk '/default/ {print $5}' | head -1")
 	if out != "" {
 		return strings.TrimSpace(out)
 	}
-	out = runCmdSilent("bash", "-c", "ip -o link show | awk -F': ' '{print $2}' | grep -v -E 'lo|wg|tun' | head -1")
+	out = runCmdSilent("bash", "-c", "ip -o link show | awk -F': ' '{print $2}' | grep -v -E 'lo|wg|tun|wdtt' | head -1")
 	if out != "" {
 		return strings.TrimSpace(out)
 	}
@@ -666,40 +969,59 @@ func setupFullConeNAT(wgIface string) error {
 	log.Println("[NAT] ══════════════════════════════════════")
 
 	os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644)
-	os.WriteFile(fmt.Sprintf("/proc/sys/net/ipv6/conf/%s/disable_ipv6", wgIface), []byte("1"), 0644)
-	os.WriteFile("/proc/sys/net/ipv6/conf/all/disable_ipv6", []byte("1"), 0644)
 
 	extIface := getDefaultInterface()
 	log.Printf("[NAT] Внешний: %s", extIface)
 
-	// Очистка старых MASQUERADE правил
-	for i := 0; i < 5; i++ {
-		exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", wgServerCIDR, "-o", extIface, "-j", "MASQUERADE").Run()
+	switch {
+	case commandExists("iptables"):
+		for i := 0; i < 5; i++ {
+			exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", wgServerCIDR, "-o", extIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "MASQUERADE").Run()
+		}
+		exec.Command("iptables", "-t", "nat", "-I", "POSTROUTING", "1", "-s", wgServerCIDR, "-o", extIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "MASQUERADE").Run()
+		natType = "MASQUERADE iptables ✅"
+		setupForwardRules(wgIface)
+	case commandExists("nft"):
+		setupNftNAT(extIface)
+		natType = "MASQUERADE nft ✅"
+		setupForwardRules(wgIface)
+	default:
+		natType = "NAT не настроен: нет iptables/nft"
+		log.Printf("[NAT] WARNING: %s", natType)
 	}
 
-	// Установка MASQUERADE (основной NAT)
-	exec.Command("iptables", "-t", "nat", "-I", "POSTROUTING", "1", "-s", wgServerCIDR, "-o", extIface, "-j", "MASQUERADE").Run()
-	natType = "MASQUERADE ✅"
-
-	setupForwardRules(wgIface)
 	log.Printf("[NAT] Режим: %s", natType)
 	log.Println("[NAT] ══════════════════════════════════════")
 	return nil
 }
 
+func setupNftNAT(extIface string) {
+	exec.Command("nft", "add", "table", "ip", "wdtt").Run()
+	exec.Command("nft", "add", "chain", "ip", "wdtt", "postrouting", "{ type nat hook postrouting priority 100; }").Run()
+	exec.Command("nft", "add", "rule", "ip", "wdtt", "postrouting", "ip", "saddr", wgServerCIDR, "oifname", extIface, "masquerade").Run()
+}
+
 func setupForwardRules(wgIface string) {
-	for i := 0; i < 5; i++ {
-		exec.Command("iptables", "-D", "FORWARD", "-i", wgIface, "-j", "ACCEPT").Run()
-		exec.Command("iptables", "-D", "FORWARD", "-o", wgIface, "-j", "ACCEPT").Run()
+	if commandExists("iptables") {
+		for i := 0; i < 5; i++ {
+			exec.Command("iptables", "-D", "FORWARD", "-i", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
+			exec.Command("iptables", "-D", "FORWARD", "-o", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
+		}
+		exec.Command("iptables", "-A", "FORWARD", "-i", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
+		exec.Command("iptables", "-A", "FORWARD", "-o", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
+		return
 	}
-	exec.Command("iptables", "-A", "FORWARD", "-i", wgIface, "-j", "ACCEPT").Run()
-	exec.Command("iptables", "-A", "FORWARD", "-o", wgIface, "-j", "ACCEPT").Run()
-	exec.Command("iptables", "-A", "FORWARD", "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT").Run()
+	if commandExists("nft") {
+		exec.Command("nft", "add", "table", "inet", "wdtt").Run()
+		exec.Command("nft", "add", "chain", "inet", "wdtt", "forward", "{ type filter hook forward priority 0; policy accept; }").Run()
+		exec.Command("nft", "add", "rule", "inet", "wdtt", "forward", "iifname", wgIface, "accept").Run()
+		exec.Command("nft", "add", "rule", "inet", "wdtt", "forward", "oifname", wgIface, "accept").Run()
+	}
 }
 
 // ==================== WireGuard ====================
 
-func startUserspaceWG(keys *wgKeys) (*device.Device, error) {
+func startUserspaceWG(keys *wgKeys, wgPort int) (*device.Device, error) {
 	runCmdSilent("ip", "link", "del", wgIfaceName)
 	time.Sleep(100 * time.Millisecond)
 
@@ -722,7 +1044,7 @@ func startUserspaceWG(keys *wgKeys) (*device.Device, error) {
 
 	if err := dev.IpcSet(fmt.Sprintf(
 		"private_key=%s\nlisten_port=%d\n",
-		serverPrivHex, internalWGPort,
+		serverPrivHex, wgPort,
 	)); err != nil {
 		dev.Close()
 		return nil, fmt.Errorf("IpcSet: %w", err)
@@ -751,11 +1073,7 @@ func startUserspaceWG(keys *wgKeys) (*device.Device, error) {
 	}
 
 	go func() {
-		uapiFile, err := ipc.UAPIOpen(ifaceName)
-		if err != nil {
-			return
-		}
-		uapi, err := ipc.UAPIListen(ifaceName, uapiFile)
+		uapi, err := ipc.UAPIListen(ifaceName)
 		if err != nil {
 			return
 		}
@@ -769,7 +1087,7 @@ func startUserspaceWG(keys *wgKeys) (*device.Device, error) {
 		}
 	}()
 
-	log.Printf("[WG] Запущен на порту %d", internalWGPort)
+	log.Printf("[WG] Запущен на порту %d", wgPort)
 	return dev, nil
 }
 
@@ -808,14 +1126,12 @@ PersistentKeepalive = %d`,
 
 func main() {
 	listen := flag.String("listen", "0.0.0.0:56000", "DTLS адрес")
-	wgPort := flag.Int("wg-port", internalWGPort, "WireGuard UDP порт")
-	configDir := flag.String("config-dir", "/etc/wireguard", "директория конфигурации")
+	wgPort := flag.Int("wg-port", defaultInternalWGPort, "WireGuard UDP порт")
+	configDir := flag.String("config-dir", "/etc/wdtt", "директория конфигурации")
 	mainPass := flag.String("password", "", "пароль владельца")
 	adminID := flag.String("admin", "", "Telegram Admin ID")
 	botToken := flag.String("bot-token", "", "Telegram Bot Token")
 	flag.Parse()
-
-	_ = wgPort // WG порт задаётся через internalWGPort (56001)
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.Println("══════════════════════════════════════════")
@@ -843,36 +1159,44 @@ func main() {
 
 	enableBBR()
 
-	wgDev, err := startUserspaceWG(keys)
+	wgDev, err := startUserspaceWG(keys, *wgPort)
 	if err != nil {
 		log.Fatalf("[WG] Запуск: %v", err)
 	}
+	if removed := cleanupExpiredPasswords(wgDev); removed > 0 {
+		log.Printf("[DB] Удалено истёкших паролей при старте: %d", removed)
+	}
+	syncPersistedPeersToWG(wgDev)
 	defer func() {
 		wgDev.Close()
 		runCmdSilent("ip", "link", "del", wgIfaceName)
 	}()
 
 	go statsLoop(ctx, *configDir)
+	go expiredPasswordJanitor(ctx, wgDev)
 	go botLoop(*botToken, *adminID, wgDev)
 
 	addr, _ := net.ResolveUDPAddr("udp", *listen)
 	cert, _ := selfsign.GenerateSelfSigned()
-	dtlsCfg := &dtls.Config{
-		Certificates:          []tls.Certificate{cert},
-		ExtendedMasterSecret:  dtls.RequireExtendedMasterSecret,
-		CipherSuites:          []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		ConnectionIDGenerator: dtls.RandomCIDGenerator(8),
+	if serverWrapKeys.Count() == 0 {
+		log.Fatalf("[WRAP] нет активных паролей для WRAP")
 	}
 
-	listener, err := dtls.Listen("udp", addr, dtlsCfg)
+	wrapListener, err := listenWrapped(addr, serverWrapKeys)
+	if err != nil {
+		log.Fatalf("[WRAP] %v", err)
+	}
+
+	listener, err := dtls.NewListenerWithOptions(wrapListener, dtls.WithCertificates(cert), dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret), dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), dtls.WithConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
 	if err != nil {
 		log.Fatalf("[DTLS] %v", err)
 	}
 	context.AfterFunc(ctx, func() { listener.Close() })
 
-	wgEndpoint := fmt.Sprintf("127.0.0.1:%d", internalWGPort)
+	wgEndpoint := fmt.Sprintf("127.0.0.1:%d", *wgPort)
 
 	log.Printf("   DTLS: %s | WG: %s | NAT: %s", *listen, wgEndpoint, natType)
+	log.Printf("   WRAP: password HKDF + RTP AEAD | keys: %d", serverWrapKeys.Count())
 	log.Println("[SERVER] Готов")
 
 	var wg sync.WaitGroup
@@ -957,7 +1281,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		if valid && isGenPass && entry.DeviceID != "" && entry.DeviceID != deviceID {
 			// Пароль уже привязан к другому устройству
 			clientConn.Write([]byte("DENIED:device_mismatch"))
-			log.Printf("[WG] Отказ: пароль %s привязан к %s, запрос от %s", password, entry.DeviceID, deviceID)
+			log.Printf("[WG] Отказ: пароль %s привязан к %s, запрос от %s", maskPassword(password), entry.DeviceID, deviceID)
 			dbMutex.Unlock()
 		} else if valid {
 			connDeviceID = deviceID
@@ -968,7 +1292,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			if isGenPass && entry.DeviceID == "" {
 				entry.DeviceID = deviceID
 				saveDB()
-				log.Printf("[WG] Пароль %s привязан к устройству %s", password, deviceID)
+				log.Printf("[WG] Пароль %s привязан к устройству %s", maskPassword(password), deviceID)
 			}
 
 			dev, exists := db.Devices[deviceID]
@@ -980,14 +1304,13 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 					dev.PubKey = pubB64
 					db.Devices[deviceID] = dev
 					saveDB()
-					pubHex, _ := b64ToHex(pubB64)
-					wgDev.IpcSet(fmt.Sprintf("public_key=%s\nallowed_ip=%s/32\n", pubHex, dev.IP))
 					log.Printf("[WG] Новое устройство %s (IP: %s)", deviceID, dev.IP)
 				} else {
 					dev = nil
 				}
 			}
 			if dev != nil {
+				upsertPeerInWG(wgDev, dev)
 				clientConn.Write([]byte(buildClientConfig(keys.serverPublic, dev.PrivKey, dev.IP, clientPort)))
 			} else {
 				clientConn.Write([]byte("NOCONF"))
@@ -996,7 +1319,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		} else {
 			if isGenPass && isPasswordExpired(entry) {
 				clientConn.Write([]byte("DENIED:expired"))
-				log.Printf("[WG] Отказ: пароль %s истёк, от %s", password, deviceID)
+				log.Printf("[WG] Отказ: пароль %s истёк, от %s", maskPassword(password), deviceID)
 			} else {
 				clientConn.Write([]byte("DENIED:wrong_password"))
 				log.Printf("[WG] Отказ (неверный пароль) от %s", deviceID)
@@ -1037,7 +1360,9 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		uc.SetWriteBuffer(2 * 1024 * 1024)
 	}
 
-	wgConn.Write(firstPacket)
+	if _, err := wgConn.Write(firstPacket); err != nil {
+		return
+	}
 	atomic.AddInt64(&totalBytesFromClient, int64(len(firstPacket)))
 
 	// Трекинг онлайн-статуса
@@ -1064,23 +1389,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	})
 
 	var proxyWg sync.WaitGroup
-	proxyWg.Add(3)
-
-	// Keepalive для спасения от Doze (Push ping)
-	go func() {
-		defer proxyWg.Done()
-		defer pcancel()
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-pctx.Done():
-				return
-			case <-ticker.C:
-				clientConn.Write([]byte("WAKEUP"))
-			}
-		}
-	}()
+	proxyWg.Add(2)
 
 	// Клиент → WG
 	go func() {
@@ -1089,12 +1398,18 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		b := getBuf()
 		defer putBuf(b)
 		for {
-			clientConn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			select {
+			case <-pctx.Done():
+				return
+			default:
+			}
+			clientConn.SetReadDeadline(time.Now().Add(30 * time.Minute))
 			nn, err := clientConn.Read(*b)
 			if err != nil {
 				return
 			}
-			if nn == 6 && string((*b)[:6]) == "WAKEUP" {
+			// Skip DTLS keepalive packets (1-byte 0xFF ping from client)
+			if nn == 1 && (*b)[0] == 0xFF {
 				continue
 			}
 			atomic.AddInt64(&totalBytesFromClient, int64(nn))
@@ -1103,12 +1418,17 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				atomic.AddInt64(&mainPassUp, int64(nn))
 			} else if connPassword != "" {
 				dbMutex.Lock()
-				if e, ok := db.Passwords[connPassword]; ok {
-					e.UpBytes += int64(nn)
+				e, ok := db.Passwords[connPassword]
+				if !ok || e == nil || isPasswordExpired(e) {
+					dbMutex.Unlock()
+					return
 				}
+				e.UpBytes += int64(nn)
 				dbMutex.Unlock()
 			}
-			wgConn.Write((*b)[:nn])
+			if _, err := wgConn.Write((*b)[:nn]); err != nil {
+				return
+			}
 		}
 	}()
 
@@ -1119,11 +1439,18 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		b := getBuf()
 		defer putBuf(b)
 		for {
-			wgConn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			select {
+			case <-pctx.Done():
+				return
+			default:
+			}
+			wgConn.SetReadDeadline(time.Now().Add(30 * time.Minute))
 			nn, err := wgConn.Read(*b)
 			if err != nil {
-				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					// Игнорируем таймауты wgConn. Это нормально, если нет трафика (idle)
+				if isNetTimeout(err) {
+					if pctx.Err() != nil {
+						return
+					}
 					continue
 				}
 				return
@@ -1134,14 +1461,277 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				atomic.AddInt64(&mainPassDown, int64(nn))
 			} else if connPassword != "" {
 				dbMutex.Lock()
-				if e, ok := db.Passwords[connPassword]; ok {
-					e.DownBytes += int64(nn)
+				e, ok := db.Passwords[connPassword]
+				if !ok || e == nil || isPasswordExpired(e) {
+					dbMutex.Unlock()
+					return
 				}
+				e.DownBytes += int64(nn)
 				dbMutex.Unlock()
 			}
-			clientConn.Write((*b)[:nn])
+			if _, err := clientConn.Write((*b)[:nn]); err != nil {
+				return
+			}
 		}
 	}()
 
 	proxyWg.Wait()
 }
+
+const (
+	wrapNonceLen = 12
+	wrapKeyLen   = 32
+)
+
+// ==================== RTP Обфускация ====================
+
+type ObfsConfig struct {
+	SSRC        uint32
+	PayloadType uint8
+	PaddingMax  int
+}
+
+type ObfsState struct {
+	mu  sync.Mutex
+	seq uint16
+	ts  uint32
+}
+
+func NewObfsConfig() *ObfsConfig {
+	var buf [4]byte
+	rand.Read(buf[:])
+	return &ObfsConfig{
+		SSRC:        binary.BigEndian.Uint32(buf[:]),
+		PayloadType: 111,
+		PaddingMax:  24,
+	}
+}
+
+func NewObfsState() *ObfsState {
+	var buf [6]byte
+	rand.Read(buf[:])
+	return &ObfsState{
+		seq: binary.BigEndian.Uint16(buf[0:2]),
+		ts:  binary.BigEndian.Uint32(buf[2:6]),
+	}
+}
+
+func newObfsAEAD(key []byte) (cipher.AEAD, error) {
+	if len(key) != wrapKeyLen {
+		return nil, fmt.Errorf("obfs: key must be %d bytes (got %d)", wrapKeyLen, len(key))
+	}
+	aead, err := chacha20poly1305.New(key)
+	if err != nil {
+		return nil, fmt.Errorf("obfs: cipher init: %w", err)
+	}
+	return aead, nil
+}
+
+func obfsBuildNonce(dst *[12]byte, ssrc uint32, seq uint16, ts uint32) []byte {
+	for i := range dst {
+		dst[i] = 0
+	}
+	binary.BigEndian.PutUint32(dst[0:4], ssrc)
+	binary.BigEndian.PutUint16(dst[4:6], seq)
+	binary.BigEndian.PutUint32(dst[8:12], ts)
+	return dst[:]
+}
+
+func obfsWrapPacket(aead cipher.AEAD, payload []byte, cfg *ObfsConfig, state *ObfsState) ([]byte, error) {
+	if aead == nil {
+		return nil, errors.New("obfs: nil cipher")
+	}
+	if len(payload) == 0 {
+		return nil, errors.New("obfs: empty payload")
+	}
+	state.mu.Lock()
+	seq := state.seq
+	ts := state.ts
+	state.seq++
+	state.ts += 960
+	state.mu.Unlock()
+
+	var nonce [12]byte
+	nonceBytes := obfsBuildNonce(&nonce, cfg.SSRC, seq, ts)
+	padRand := 0
+	if cfg.PaddingMax > 0 {
+		var rndBuf [1]byte
+		rand.Read(rndBuf[:])
+		padRand = int(rndBuf[0]) % cfg.PaddingMax
+	}
+	padTotal := padRand + 1
+	outLen := 12 + len(payload) + chacha20poly1305.Overhead + padTotal
+	out := make([]byte, outLen)
+
+	out[0] = 0x80 | 0x20
+	out[1] = cfg.PayloadType & 0x7F
+	binary.BigEndian.PutUint16(out[2:4], seq)
+	binary.BigEndian.PutUint32(out[4:8], ts)
+	binary.BigEndian.PutUint32(out[8:12], cfg.SSRC)
+
+	sealed := aead.Seal(out[12:12], nonceBytes, payload, out[:12])
+	padStart := 12 + len(sealed)
+	if padRand > 0 {
+		rand.Read(out[padStart : padStart+padRand])
+	}
+	out[outLen-1] = byte(padTotal)
+	return out, nil
+}
+
+func obfsUnwrapPacket(aead cipher.AEAD, wire, dst []byte) (int, error) {
+	if aead == nil {
+		return 0, errors.New("obfs: nil cipher")
+	}
+	if len(wire) < 13 {
+		return 0, errors.New("obfs: packet too short")
+	}
+	if (wire[0] >> 6) != 2 {
+		return 0, errors.New("obfs: not RTP v2")
+	}
+	seq := binary.BigEndian.Uint16(wire[2:4])
+	ts := binary.BigEndian.Uint32(wire[4:8])
+	ssrc := binary.BigEndian.Uint32(wire[8:12])
+
+	payloadEnd := len(wire)
+	if wire[0]&0x20 != 0 {
+		padLen := int(wire[len(wire)-1])
+		if padLen == 0 || padLen > payloadEnd-12 {
+			return 0, fmt.Errorf("obfs: invalid padding length %d", padLen)
+		}
+		payloadEnd -= padLen
+	}
+	ciphertextLen := payloadEnd - 12
+	if ciphertextLen <= chacha20poly1305.Overhead {
+		return 0, errors.New("obfs: no payload")
+	}
+	if ciphertextLen-chacha20poly1305.Overhead > len(dst) {
+		return 0, errors.New("obfs: dst buffer too small")
+	}
+	var nonce [12]byte
+	nonceBytes := obfsBuildNonce(&nonce, ssrc, seq, ts)
+	plain, err := aead.Open(dst[:0], nonceBytes, wire[12:payloadEnd], wire[:12])
+	if err != nil {
+		return 0, fmt.Errorf("obfs: auth: %w", err)
+	}
+	return len(plain), nil
+}
+
+func obfsIsRTPPacket(wire []byte) bool {
+	if len(wire) < 13 {
+		return false
+	}
+	if (wire[0] >> 6) != 2 {
+		return false
+	}
+	pt := wire[1] & 0x7F
+	return pt == 111
+}
+
+func listenWrapped(addr *net.UDPAddr, keys *wrapKeyStore) (dtlsnet.PacketListener, error) {
+	if keys == nil || keys.Count() == 0 {
+		return nil, errors.New("wrap: no active keys")
+	}
+	inner, err := pionudp.Listen("udp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("wrap: udp listen: %w", err)
+	}
+	return &wrapPacketListener{
+		inner: dtlsnet.PacketListenerFromListener(inner),
+		keys:  keys,
+	}, nil
+}
+
+type wrapPacketListener struct {
+	inner dtlsnet.PacketListener
+	keys  *wrapKeyStore
+}
+
+func (l *wrapPacketListener) Accept() (net.PacketConn, net.Addr, error) {
+	pc, addr, err := l.inner.Accept()
+	if err != nil {
+		return pc, addr, err
+	}
+	return &wrapPacketConn{inner: pc, keys: l.keys}, addr, nil
+}
+
+func (l *wrapPacketListener) Close() error   { return l.inner.Close() }
+func (l *wrapPacketListener) Addr() net.Addr { return l.inner.Addr() }
+
+type wrapPacketConn struct {
+	inner     net.PacketConn
+	keys      *wrapKeyStore
+	key       []byte
+	selected  int32
+	authLog   int32
+	obfsCfg   *ObfsConfig
+	obfsWrite *ObfsState
+	obfsAEAD  cipher.AEAD
+	readBuf   []byte
+}
+
+func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	// Extra space for RTP header (12) + AEAD tag (16) + padding.
+	readLen := len(p) + 80
+	if cap(c.readBuf) < readLen {
+		c.readBuf = make([]byte, readLen)
+	}
+	buf := c.readBuf[:readLen]
+	n, addr, err := c.inner.ReadFrom(buf)
+	if err != nil {
+		return 0, addr, err
+	}
+	raw := buf[:n]
+
+	if atomic.LoadInt32(&c.selected) == 0 {
+		key, m, uErr := c.keys.Unwrap(raw, p)
+		if uErr != nil {
+			if atomic.CompareAndSwapInt32(&c.authLog, 0, 1) {
+				log.Printf("[WRAP] Отказ: RTP AEAD auth failed from %s (keys=%d)", addr.String(), c.keys.Count())
+			}
+			return 0, addr, uErr
+		}
+		c.key = key
+		aead, err := newObfsAEAD(key)
+		if err != nil {
+			return 0, addr, err
+		}
+		c.obfsAEAD = aead
+		c.obfsCfg = NewObfsConfig()
+		c.obfsWrite = NewObfsState()
+		atomic.StoreInt32(&c.selected, 1)
+		if atomic.CompareAndSwapInt32(&c.authLog, 0, 1) {
+			log.Printf("[WRAP] OK: ключ выбран для %s (keys=%d)", addr.String(), c.keys.Count())
+		}
+		return m, addr, nil
+	}
+
+	m, uErr := obfsUnwrapPacket(c.obfsAEAD, raw, p)
+	if uErr != nil {
+		return 0, addr, fmt.Errorf("obfs unwrap: %w", uErr)
+	}
+	return m, addr, nil
+}
+
+func (c *wrapPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	if atomic.LoadInt32(&c.selected) == 0 || len(c.key) != wrapKeyLen {
+		return 0, errors.New("wrap: key not selected")
+	}
+	if c.obfsCfg == nil || c.obfsWrite == nil {
+		c.obfsCfg = NewObfsConfig()
+		c.obfsWrite = NewObfsState()
+	}
+	wrapped, wErr := obfsWrapPacket(c.obfsAEAD, p, c.obfsCfg, c.obfsWrite)
+	if wErr != nil {
+		return 0, fmt.Errorf("obfs wrap: %w", wErr)
+	}
+	if _, err := c.inner.WriteTo(wrapped, addr); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (c *wrapPacketConn) Close() error                       { return c.inner.Close() }
+func (c *wrapPacketConn) LocalAddr() net.Addr                { return c.inner.LocalAddr() }
+func (c *wrapPacketConn) SetDeadline(t time.Time) error      { return c.inner.SetDeadline(t) }
+func (c *wrapPacketConn) SetReadDeadline(t time.Time) error  { return c.inner.SetReadDeadline(t) }
+func (c *wrapPacketConn) SetWriteDeadline(t time.Time) error { return c.inner.SetWriteDeadline(t) }

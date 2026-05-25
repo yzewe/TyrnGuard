@@ -57,7 +57,7 @@ class WdttTileService : TileService() {
         val tile = qsTile ?: return
         val isRunning = TunnelManager.running.value
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = "WDTT VPN"
+        tile.label = "TyrnGuard VPN"
         tile.updateTile()
     }
 }

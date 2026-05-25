@@ -2,17 +2,34 @@
 # ==============================================================================
 #  WDTT VPN Server — Универсальный установщик для VPS
 #  Поддержка: Debian 11+, Ubuntu 20.04+, CentOS/RHEL/Fedora/AlmaLinux/Rocky
-#  Версия: 3.0  |  Дата: 2026-04-01
-#  NAT:  MASQUERADE (стандартный iptables, без Full Cone NAT)
+#  Версия: 3.2  |  Дата: 2026-05-13
+#  NAT:  MASQUERADE через iptables
 #  WG:   порт 56001 (не конфликтует с существующим WG на 51820)
 #  DTLS: порт 56000
 # ==============================================================================
 set -uo pipefail
 
-readonly SCRIPT_VERSION="3.0"
+readonly SCRIPT_VERSION="3.2"
 readonly LOG_FILE="/var/log/wdtt-install.log"
-readonly WG_PORT=56001
-readonly DTLS_PORT=56000
+readonly WG_PORT="${WDTT_WG_PORT:-56001}"
+readonly DTLS_PORT="${WDTT_DTLS_PORT:-56000}"
+readonly SSH_PORT="${WDTT_SSH_PORT:-22}"
+readonly WDTT_ARGS="${WDTT_ARGS:-}"
+readonly WDTT_IFACE="wdtt0"
+readonly WDTT_CONFIG_DIR="/etc/wdtt"
+readonly WDTT_ACCESS_DB="passwords.json"
+readonly IPT_COMMENT="WDTT_MANAGED"
+readonly IPT_MIRROR_COMMENT="WDTT_MIRRORED"
+
+validate_port() {
+    local name="$1" value="$2"
+    case "$value" in
+        ''|*[!0-9]*) die "$name должен быть числом от 1 до 65535, получено: $value" ;;
+    esac
+    if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+        die "$name должен быть в диапазоне 1..65535, получено: $value"
+    fi
+}
 
 # ─── Цвета ───────────────────────────────────────────────────────────────────
 C_GREEN=''; C_YELLOW=''; C_RED=''
@@ -30,7 +47,7 @@ prog() { echo "WDTT_PROGRESS|$1|$2"; }
 # ─── Проверка root ────────────────────────────────────────────────────────────
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        die "Скрипт должен быть запущен от root! Используйте: sudo bash $0 $*"
+        die "Скрипт должен быть запущен от root. Если sudo отсутствует, зайдите под root и запустите: bash $0 $*"
     fi
 }
 
@@ -55,6 +72,63 @@ detect_os() {
     log_info "ОС: ${PRETTY_NAME:-$OS_ID} | PM: $PKG_MGR"
 }
 
+# ─── Пакеты ──────────────────────────────────────────────────────────────────
+pkg_update_done=0
+
+pkg_update() {
+    [ "$pkg_update_done" = "1" ] && return 0
+    log_step "Обновление индексов пакетов..."
+    case "$PKG_MGR" in
+        apt)
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -y >>"$LOG_FILE" 2>&1 || log_warn "apt update завершился с ошибкой, пробую продолжить"
+            ;;
+        dnf)    dnf makecache -y >>"$LOG_FILE" 2>&1 || true ;;
+        yum)    yum makecache -y >>"$LOG_FILE" 2>&1 || true ;;
+        pacman) pacman -Sy --noconfirm >>"$LOG_FILE" 2>&1 || true ;;
+    esac
+    pkg_update_done=1
+}
+
+pkg_install() {
+    [ "$#" -eq 0 ] && return 0
+    case "$PKG_MGR" in
+        apt)
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get install -y -qq "$@" >>"$LOG_FILE" 2>&1
+            ;;
+        dnf)    dnf install -y "$@" >>"$LOG_FILE" 2>&1 ;;
+        yum)    yum install -y "$@" >>"$LOG_FILE" 2>&1 ;;
+        pacman) pacman -S --noconfirm --needed "$@" >>"$LOG_FILE" 2>&1 ;;
+    esac
+}
+
+install_prerequisites() {
+    prog 0.08 "Пакеты..."
+    pkg_update
+    log_step "Установка базовых зависимостей..."
+
+    case "$PKG_MGR" in
+        apt)
+            pkg_install ca-certificates iproute2 iptables nftables procps psmisc || \
+                log_warn "Часть apt-пакетов не установилась, продолжаю с доступными утилитами"
+            ;;
+        dnf|yum)
+            pkg_install ca-certificates iproute iptables nftables procps-ng psmisc || \
+                log_warn "Часть rpm-пакетов не установилась, продолжаю с доступными утилитами"
+            ;;
+        pacman)
+            pkg_install ca-certificates iproute2 iptables nftables procps-ng psmisc || \
+                log_warn "Часть pacman-пакетов не установилась, продолжаю с доступными утилитами"
+            ;;
+    esac
+}
+
+require_runtime_tools() {
+    command -v ip >/dev/null 2>&1 || die "Команда ip не найдена. Установите iproute2/iproute."
+    command -v systemctl >/dev/null 2>&1 || die "systemctl не найден. Нужен VPS с systemd."
+}
+
 # ─── Автоопределение WAN-интерфейса ──────────────────────────────────────────
 detect_wan_interface() {
     local iface=""
@@ -64,29 +138,70 @@ detect_wan_interface() {
     echo "$iface"
 }
 
-# ─── Определение доступного firewall-бэкенда ─────────────────────────────────
+# ─── Firewall helpers ────────────────────────────────────────────────────────
 FW_BACKEND=""
 
-detect_firewall() {
-    if command -v iptables &>/dev/null; then
-        FW_BACKEND="iptables"
-    elif command -v nft &>/dev/null; then
-        FW_BACKEND="nft"
-    else
-        log_warn "Ни iptables, ни nft не найдены. Пытаемся установить iptables..."
-        case "$PKG_MGR" in
-            apt)    apt-get install -y -qq iptables 2>>"$LOG_FILE" ;;
-            dnf)    dnf install -y iptables 2>>"$LOG_FILE" ;;
-            yum)    yum install -y iptables 2>>"$LOG_FILE" ;;
-            pacman) pacman -Sy --noconfirm iptables 2>>"$LOG_FILE" ;;
-        esac
-        if command -v iptables &>/dev/null; then
-            FW_BACKEND="iptables"
-        else
-            die "Не удалось установить iptables. Настройте firewall вручную."
+iptables_add_input() {
+    local proto="$1" port="$2" comment="$3"
+    [ "$FW_BACKEND" = "iptables" ] || return 0
+    case "$proto:$port" in
+        tcp:[0-9]*|udp:[0-9]*) ;;
+        *) return 0 ;;
+    esac
+    [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || return 0
+    iptables -C INPUT -p "$proto" --dport "$port" -m comment --comment "$comment" -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT -p "$proto" --dport "$port" -m comment --comment "$comment" -j ACCEPT 2>/dev/null || true
+}
+
+mirror_port_to_iptables() {
+    local proto="$1" port="$2" source="$3"
+    iptables_add_input "$proto" "$port" "$IPT_MIRROR_COMMENT"
+    log_info "iptables: сохранён доступ $port/$proto из $source"
+}
+
+mirror_existing_firewall_ports_to_iptables() {
+    [ "$FW_BACKEND" = "iptables" ] || return 0
+    local tmp
+    tmp="$(mktemp)"
+
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; then
+        log_info "UFW активен: переношу разрешённые tcp/udp порты в iptables"
+        ufw status 2>/dev/null | sed -nE 's#^([0-9]{1,5})/(tcp|udp)[[:space:]].*ALLOW IN.*#\2 \1 ufw#p' >> "$tmp" || true
+    fi
+
+    if command -v nft >/dev/null 2>&1; then
+        local nft_ports
+        nft_ports="$(nft -a list ruleset 2>/dev/null | sed -nE 's/.*(tcp|udp) dport ([0-9]{1,5}).*accept.*/\1 \2 nft/p' | sort -u || true)"
+        if [ -n "$nft_ports" ]; then
+            log_info "nftables найден: переношу простые accept dport правила в iptables"
+            printf '%s\n' "$nft_ports" >> "$tmp"
         fi
     fi
-    log_info "Firewall бэкенд: $FW_BACKEND"
+
+    if [ -s "$tmp" ]; then
+        sort -u "$tmp" | while read -r proto port source; do
+            mirror_port_to_iptables "$proto" "$port" "$source"
+        done
+    else
+        log_info "UFW/nftables разрешённых tcp/udp портов для переноса не найдено"
+    fi
+    rm -f "$tmp"
+}
+
+detect_firewall() {
+    if ! command -v iptables &>/dev/null; then
+        log_warn "iptables не найден. Пытаюсь установить firewall-пакеты..."
+        pkg_update
+        pkg_install iptables nftables || true
+    fi
+    if command -v iptables &>/dev/null; then
+        FW_BACKEND="iptables"
+        log_info "Firewall backend: iptables (принудительно)"
+        mirror_existing_firewall_ports_to_iptables
+    else
+        FW_BACKEND="none"
+        log_warn "iptables не найден. Установка продолжится, но NAT/firewall нужно настроить вручную."
+    fi
 }
 
 # ─── Firewall-абстракция ─────────────────────────────────────────────────────
@@ -94,12 +209,14 @@ fw_add_input_udp() {
     local port="$1"
     case "$FW_BACKEND" in
         iptables)
-            iptables -C INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null || \
-                iptables -I INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null || true
+            iptables -C INPUT -p udp --dport "$port" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || \
+                iptables -I INPUT -p udp --dport "$port" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             ;;
         nft)
-            nft add rule inet filter input udp dport "$port" accept 2>/dev/null || true
+            ensure_nft_wdtt
+            nft add rule inet wdtt input udp dport "$port" accept 2>/dev/null || true
             ;;
+        none) ;;
     esac
 }
 
@@ -107,37 +224,39 @@ fw_add_input_tcp() {
     local port="$1"
     case "$FW_BACKEND" in
         iptables)
-            iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || \
-                iptables -I INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || true
+            iptables -C INPUT -p tcp --dport "$port" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || \
+                iptables -I INPUT -p tcp --dport "$port" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             ;;
         nft)
-            nft add rule inet filter input tcp dport "$port" accept 2>/dev/null || true
+            ensure_nft_wdtt
+            nft add rule inet wdtt input tcp dport "$port" accept 2>/dev/null || true
             ;;
+        none) ;;
     esac
 }
 
 fw_add_input_udp_range() {
     local from="$1" to="$2"
     case "$FW_BACKEND" in
-        iptables)
-            iptables -C INPUT -p udp --dport "$from:$to" -j ACCEPT 2>/dev/null || \
-                iptables -I INPUT -p udp --dport "$from:$to" -j ACCEPT 2>/dev/null || true
-            ;;
-        nft)
-            nft add rule inet filter input udp dport "$from"-"$to" accept 2>/dev/null || true
-            ;;
+        iptables|nft) log_warn "Пропускаю широкий UDP range $from-$to: это не изолировано и может влиять на чужие сервисы." ;;
+        none) ;;
     esac
 }
 
 fw_add_forward() {
     case "$FW_BACKEND" in
         iptables)
-            iptables -C FORWARD -j ACCEPT 2>/dev/null || \
-                iptables -I FORWARD -j ACCEPT 2>/dev/null || true
+            iptables -C FORWARD -i "$WDTT_IFACE" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || \
+                iptables -I FORWARD -i "$WDTT_IFACE" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
+            iptables -C FORWARD -o "$WDTT_IFACE" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || \
+                iptables -I FORWARD -o "$WDTT_IFACE" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             ;;
         nft)
-            nft add rule inet filter forward accept 2>/dev/null || true
+            ensure_nft_wdtt
+            nft add rule inet wdtt forward iifname "$WDTT_IFACE" accept 2>/dev/null || true
+            nft add rule inet wdtt forward oifname "$WDTT_IFACE" accept 2>/dev/null || true
             ;;
+        none) ;;
     esac
 }
 
@@ -145,14 +264,15 @@ fw_add_masquerade() {
     local iface="$1" subnet="$2"
     case "$FW_BACKEND" in
         iptables)
-            iptables -t nat -C POSTROUTING -s "$subnet" -o "$iface" -j MASQUERADE 2>/dev/null || \
-                iptables -t nat -A POSTROUTING -s "$subnet" -o "$iface" -j MASQUERADE 2>/dev/null || true
+            iptables -t nat -C POSTROUTING -s "$subnet" -o "$iface" -m comment --comment "$IPT_COMMENT" -j MASQUERADE 2>/dev/null || \
+                iptables -t nat -A POSTROUTING -s "$subnet" -o "$iface" -m comment --comment "$IPT_COMMENT" -j MASQUERADE 2>/dev/null || true
             ;;
         nft)
-            nft add table nat 2>/dev/null || true
-            nft add chain nat postrouting '{ type nat hook postrouting priority 100; }' 2>/dev/null || true
-            nft add rule nat postrouting ip saddr "$subnet" oifname "$iface" masquerade 2>/dev/null || true
+            nft add table ip wdtt 2>/dev/null || true
+            nft add chain ip wdtt postrouting '{ type nat hook postrouting priority 100; }' 2>/dev/null || true
+            nft add rule ip wdtt postrouting ip saddr "$subnet" oifname "$iface" masquerade 2>/dev/null || true
             ;;
+        none) ;;
     esac
 }
 
@@ -161,30 +281,54 @@ fw_add_mss_clamping() {
     case "$FW_BACKEND" in
         iptables)
             # Применяем правило ТОЛЬКО к нашей подсети WDTT
-            iptables -t mangle -C FORWARD -s "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
-                iptables -t mangle -I FORWARD -s "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-            iptables -t mangle -C FORWARD -d "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
-                iptables -t mangle -I FORWARD -d "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+            iptables -t mangle -C FORWARD -s "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+                iptables -t mangle -I FORWARD -s "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+            iptables -t mangle -C FORWARD -d "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+                iptables -t mangle -I FORWARD -d "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
             ;;
         nft)
-            nft add table inet mangle 2>/dev/null || true
-            nft add chain inet mangle forward '{ type filter hook forward priority -150; }' 2>/dev/null || true
-            nft add rule inet mangle forward ip saddr "$subnet" tcp flags syn tcp option maxseg size set rt mtu 2>/dev/null || true
-            nft add rule inet mangle forward ip daddr "$subnet" tcp flags syn tcp option maxseg size set rt mtu 2>/dev/null || true
+            nft add table inet wdtt_mangle 2>/dev/null || true
+            nft add chain inet wdtt_mangle forward '{ type filter hook forward priority -150; policy accept; }' 2>/dev/null || true
+            nft add rule inet wdtt_mangle forward ip saddr "$subnet" tcp flags syn tcp option maxseg size set rt mtu 2>/dev/null || true
+            nft add rule inet wdtt_mangle forward ip daddr "$subnet" tcp flags syn tcp option maxseg size set rt mtu 2>/dev/null || true
             ;;
+        none) ;;
     esac
 }
 
 fw_add_established() {
-    case "$FW_BACKEND" in
-        iptables)
-            iptables -C INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
-                iptables -I INPUT 2 -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-            ;;
-        nft)
-            nft add rule inet filter input ct state established,related accept 2>/dev/null || true
-            ;;
-    esac
+    return 0
+}
+
+fw_cleanup_wdtt_rules() {
+    local iface="$1"
+    if command -v iptables >/dev/null 2>&1; then
+        for i in {1..5}; do
+            local nat_iface
+            for nat_iface in "$iface" $(ls /sys/class/net 2>/dev/null || true); do
+                [ -n "$nat_iface" ] && iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o "$nat_iface" -m comment --comment "$IPT_COMMENT" -j MASQUERADE 2>/dev/null || true
+            done
+            iptables -t mangle -D FORWARD -s 10.66.66.0/24 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+            iptables -t mangle -D FORWARD -d 10.66.66.0/24 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+            iptables -D INPUT -p udp --dport ${DTLS_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
+            iptables -D INPUT -p udp --dport ${WG_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
+            iptables -D INPUT -p tcp --dport ${SSH_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
+            iptables -D INPUT -p tcp --dport 22 -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
+            iptables -D FORWARD -i "$WDTT_IFACE" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
+            iptables -D FORWARD -o "$WDTT_IFACE" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
+        done
+    fi
+    if command -v nft >/dev/null 2>&1; then
+        nft delete table ip wdtt 2>/dev/null || true
+        nft delete table inet wdtt 2>/dev/null || true
+        nft delete table inet wdtt_mangle 2>/dev/null || true
+    fi
+}
+
+cleanup_config_dir_keep_access_db() {
+    [ -d "$WDTT_CONFIG_DIR" ] || return 0
+    find "$WDTT_CONFIG_DIR" -mindepth 1 -maxdepth 1 ! -name "$WDTT_ACCESS_DB" -exec rm -rf {} + 2>/dev/null || true
+    [ -f "$WDTT_CONFIG_DIR/$WDTT_ACCESS_DB" ] && chmod 600 "$WDTT_CONFIG_DIR/$WDTT_ACCESS_DB" 2>/dev/null || true
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -196,34 +340,23 @@ wdtt_cleanup() {
     prog 0.05 "Очистка..."
     echo "🧹 Очистка старой установки WDTT..."
 
-    # Защита SSH
-    fw_add_input_tcp 22
-
     systemctl unmask wdtt 2>/dev/null || true
     systemctl stop wdtt 2>/dev/null || true
     systemctl disable wdtt 2>/dev/null || true
     rm -f /etc/systemd/system/wdtt.service 2>/dev/null || true
     systemctl daemon-reload 2>/dev/null || true
-    pkill -9 -f wdtt-server 2>/dev/null || killall -9 wdtt-server 2>/dev/null || true
+    pkill -x wdtt-server 2>/dev/null || killall wdtt-server 2>/dev/null || true
 
-    # Удаляем только WDTT WireGuard интерфейс (wg0), НЕ трогаем другие
-    ip link del wg0 2>/dev/null || true
+    # Удаляем только собственный интерфейс WDTT.
+    ip link show "$WDTT_IFACE" >/dev/null 2>&1 && ip link del "$WDTT_IFACE" 2>/dev/null || true
 
     # Удаляем старые правила NAT для WDTT подсети
-    for i in {1..5}; do
-        iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -j FULLCONENAT 2>/dev/null || true
-        iptables -t nat -D PREROUTING -j FULLCONENAT 2>/dev/null || true
-        iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -j MASQUERADE 2>/dev/null || true
-        iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o "$(detect_wan_interface)" -j MASQUERADE 2>/dev/null || true
-    done
+    fw_cleanup_wdtt_rules "$(detect_wan_interface)"
 
     rm -f /usr/local/bin/wdtt-server 2>/dev/null || true
-    rm -rf /etc/wireguard/wg-keys.dat /etc/wireguard/passwords.json /etc/wireguard/server.log 2>/dev/null || true
+    cleanup_config_dir_keep_access_db
 
-    # Освобождаем ТОЛЬКО порты WDTT (56001 и 56000), НЕ трогаем 51820!
-    fuser -k -9 ${WG_PORT}/udp ${DTLS_PORT}/udp 2>/dev/null || true
-
-    echo "✓ Очистка завершена"
+    echo "✓ Очистка завершена (база доступа сохранена)"
 }
 
 # ─── Sysctl тюнинг ───────────────────────────────────────────────────────────
@@ -231,17 +364,12 @@ setup_sysctl() {
     prog 0.20 "Sysctl..."
     echo "⚙️  Настройка сетевых параметров..."
 
-    echo 1 > /proc/sys/net/ipv4/ip_forward
+    echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true
+    mkdir -p /etc/sysctl.d
     cat > /etc/sysctl.d/99-wdtt.conf << 'SYSEOF'
 net.ipv4.ip_forward = 1
-net.ipv6.conf.all.disable_ipv6 = 1
-net.netfilter.nf_conntrack_udp_timeout = 300
-net.netfilter.nf_conntrack_udp_timeout_stream = 300
 SYSEOF
 
-    echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || true
-    echo 300 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout 2>/dev/null || true
-    echo 300 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout_stream 2>/dev/null || true
     sysctl -p /etc/sysctl.d/99-wdtt.conf >/dev/null 2>&1 || true
 
     echo "✓ Sysctl настроен"
@@ -257,20 +385,16 @@ setup_nat_and_firewall() {
 
     if [ -z "$iface" ]; then
         log_warn "Не удалось определить WAN-интерфейс!"
-        log_warn "Настройте NAT вручную: iptables -t nat -A POSTROUTING -s 10.66.66.0/24 -o <iface> -j MASQUERADE"
+        log_warn "Настройте NAT вручную для подсети 10.66.66.0/24."
         return 0
     fi
 
     log_info "WAN-интерфейс: $iface"
 
-    # === SSH (всегда первое правило!) ===
-    fw_add_input_tcp 22
-    fw_add_established
-
     # === WDTT порты ===
     fw_add_input_udp "$DTLS_PORT"   # 56000 — DTLS сервер
     fw_add_input_udp "$WG_PORT"     # 56001 — WireGuard
-    fw_add_input_udp_range 1024 65535  # Весь диапазон UDP (TURN relay)
+    fw_add_input_tcp "$SSH_PORT"    # SSH порт, указанный пользователем в приложении
 
     # === Forward ===
     fw_add_forward
@@ -281,8 +405,12 @@ setup_nat_and_firewall() {
     # === MSS Clamping для исправления MTU (DonationAlerts / Cloudflare) ===
     fw_add_mss_clamping "10.66.66.0/24"
 
-    echo "✓ NAT: MASQUERADE на $iface для 10.66.66.0/24"
-    echo "✓ Порты: 22/tcp(SSH), ${DTLS_PORT}/udp(DTLS), ${WG_PORT}/udp(WG), 1024-65535/udp"
+    if [ "$FW_BACKEND" = "none" ]; then
+        echo "⚠ NAT не настроен автоматически: firewall-бэкенд отсутствует"
+    else
+        echo "✓ NAT: MASQUERADE на $iface для 10.66.66.0/24"
+    fi
+    echo "✓ Порты: ${DTLS_PORT}/udp(DTLS), ${WG_PORT}/udp(WG), ${SSH_PORT}/tcp(SSH)"
     echo "✓ TCP MSS Clamping включен"
 }
 
@@ -293,7 +421,7 @@ setup_wdtt_binary() {
 
     if [ -f /tmp/wdtt-server ]; then
         chmod +x /tmp/wdtt-server
-        mv /tmp/wdtt-server /usr/local/bin/wdtt-server
+        install -m 0755 /tmp/wdtt-server /usr/local/bin/wdtt-server 2>/dev/null || mv /tmp/wdtt-server /usr/local/bin/wdtt-server
         echo "✓ wdtt-server установлен"
     elif [ -f /usr/local/bin/wdtt-server ]; then
         echo "✓ wdtt-server уже установлен"
@@ -302,7 +430,7 @@ setup_wdtt_binary() {
         echo "  Загрузите бинарник вручную в /usr/local/bin/wdtt-server"
     fi
 
-    mkdir -p /etc/wireguard
+    mkdir -p "$WDTT_CONFIG_DIR"
 }
 
 # ─── Systemd-сервис WDTT ─────────────────────────────────────────────────────
@@ -318,9 +446,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStartPre=-/usr/bin/env bash -c "fuser -k -9 ${WG_PORT}/udp ${DTLS_PORT}/udp || true"
-ExecStartPre=-/usr/bin/env bash -c "ip link del wg0 2>/dev/null || true"
-ExecStart=/usr/local/bin/wdtt-server -listen 0.0.0.0:${DTLS_PORT} -wg-port ${WG_PORT} -config-dir /etc/wireguard ${WDTT_ARGS}
+ExecStartPre=-/usr/bin/env bash -c "ip link show ${WDTT_IFACE} >/dev/null 2>&1 && ip link del ${WDTT_IFACE} 2>/dev/null || true"
+ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; fi"
+ExecStart=/usr/local/bin/wdtt-server -listen 0.0.0.0:${DTLS_PORT} -wg-port ${WG_PORT} -config-dir ${WDTT_CONFIG_DIR} ${WDTT_ARGS}
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
@@ -361,6 +489,7 @@ start_wdtt() {
         echo "   NAT:  MASQUERADE (стандартный)"
         echo "   DTLS: порт ${DTLS_PORT}"
         echo "   WG:   порт ${WG_PORT}"
+        echo "   SSH:  порт ${SSH_PORT}"
     else
         echo "⚠️ Сервис wdtt не запустился. Статус: $status"
         echo "   Последние логи:"
@@ -382,27 +511,17 @@ do_uninstall() {
     rm -f /etc/systemd/system/wdtt.service
     systemctl daemon-reload
 
-    ip link del wg0 2>/dev/null || true
-    pkill -9 -f wdtt-server 2>/dev/null || true
+    ip link show "$WDTT_IFACE" >/dev/null 2>&1 && ip link del "$WDTT_IFACE" 2>/dev/null || true
+    pkill -x wdtt-server 2>/dev/null || true
 
-    local iface
-    iface=$(detect_wan_interface)
-    if [ -n "$iface" ]; then
-        for i in {1..5}; do
-            iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o "$iface" -j MASQUERADE 2>/dev/null || true
-            iptables -t mangle -D FORWARD -s 10.66.66.0/24 -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-            iptables -t mangle -D FORWARD -d 10.66.66.0/24 -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-        done
-        iptables -D INPUT -p udp --dport ${DTLS_PORT} -j ACCEPT 2>/dev/null || true
-        iptables -D INPUT -p udp --dport ${WG_PORT} -j ACCEPT 2>/dev/null || true
-        iptables -D INPUT -p udp --dport 1024:65535 -j ACCEPT 2>/dev/null || true
-    fi
+    fw_cleanup_wdtt_rules "$(detect_wan_interface)"
 
     rm -f /usr/local/bin/wdtt-server
+    cleanup_config_dir_keep_access_db
     rm -f /etc/sysctl.d/99-wdtt.conf
     sysctl --system >/dev/null 2>&1 || true
 
-    log_info "WDTT полностью удалён."
+    log_info "WDTT удалён. База доступа сохранена: ${WDTT_CONFIG_DIR}/${WDTT_ACCESS_DB}"
 }
 
 # ─── Команда: status ─────────────────────────────────────────────────────────
@@ -419,10 +538,10 @@ do_status() {
     else
         log_warn "Бинарник: НЕ найден"
     fi
-    if ip link show wg0 &>/dev/null; then
-        log_info "WireGuard (wg0): активен"
+    if ip link show "$WDTT_IFACE" &>/dev/null; then
+        log_info "WDTT интерфейс ($WDTT_IFACE): активен"
     else
-        log_warn "WireGuard (wg0): не активен"
+        log_warn "WDTT интерфейс ($WDTT_IFACE): не активен"
     fi
 }
 
@@ -432,16 +551,21 @@ do_status() {
 main() {
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║       WDTT VPN Server — Installer v${SCRIPT_VERSION}                    ║"
-    echo "║       DTLS: ${DTLS_PORT}  |  WG: ${WG_PORT}  |  NAT: MASQUERADE       ║"
+    echo "║       DTLS: ${DTLS_PORT}  |  WG: ${WG_PORT}  |  SSH: ${SSH_PORT}       ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
 
     local action="${1:-install}"
     check_root
+    validate_port "WDTT_DTLS_PORT" "$DTLS_PORT"
+    validate_port "WDTT_WG_PORT" "$WG_PORT"
+    validate_port "WDTT_SSH_PORT" "$SSH_PORT"
 
     mkdir -p "$(dirname "$LOG_FILE")"
     echo "=== WDTT Installer v${SCRIPT_VERSION} — $(date) ===" >> "$LOG_FILE"
 
     detect_os
+    install_prerequisites
+    require_runtime_tools
     detect_firewall
 
     case "$action" in

@@ -9,7 +9,26 @@ import (
 	"time"
 )
 
-const returnChBuf = 384
+const (
+	returnChBuf = 384
+
+	// chunkSize — количество последовательных пакетов, отправляемых в один worker
+	// перед переключением на следующий.
+	//
+	// Зачем: при round-robin (chunk=1) каждый пакет летит через разный TURN relay
+	// с разным latency, что приводит к reorder на сервере. TCP внутри WireGuard
+	// интерпретирует reorder как потери → cwnd collapse → скорость single-flow
+	// падает до ~8 KB/s.
+	//
+	// С chunk=8: пакеты в пределах одного TCP congestion window (~10 пакетов при
+	// initial cwnd) уходят через один TURN relay → прилетают по порядку.
+	// Reorder возможен только между chunk-границами, что покрывается WG replay
+	// window (2048 пакетов).
+	//
+	// Агрегатная пропускная способность не меняется — все workers загружены
+	// равномерно по-прежнему (каждый получает 1/N от общего трафика за время).
+	chunkSize = 8
+)
 
 type WorkerSlot struct {
 	ID     int
@@ -22,6 +41,7 @@ type Dispatcher struct {
 	mu         sync.Mutex
 	workers    []*WorkerSlot
 	rrIndex    int
+	rrCount    int // сколько пакетов отправлено в текущий worker (0..chunkSize-1)
 	ReturnCh   chan []byte
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -67,10 +87,23 @@ func (d *Dispatcher) Unregister(slot *WorkerSlot) {
 		}
 	}
 	remaining := len(d.workers)
+	// Подстраховка: если текущий rrIndex вылез за границу после удаления
+	if d.rrIndex >= remaining && remaining > 0 {
+		d.rrIndex = d.rrIndex % remaining
+	}
+	d.rrCount = 0
 	d.mu.Unlock()
 	log.Printf("[ДИСП] Воркер #%d отключён (осталось: %d)", slot.ID, remaining)
 }
 
+// readLoop читает WireGuard-пакеты и распределяет по workers chunk'ами.
+//
+// Логика: отправляем chunkSize подряд пакетов в один worker, потом переходим
+// к следующему. Если текущий worker перегружен (канал полный) — немедленно
+// ищем свободный worker и начинаем новый chunk на нём. Это гарантирует:
+//   - В рамках chunk пакеты идут через один TURN relay → in-order delivery
+//   - Между chunks — разные relay → максимальная агрегатная скорость
+//   - Нет блокировки, нет буферизации, нет дополнительного latency
 func (d *Dispatcher) readLoop() {
 	defer d.wg.Done()
 
@@ -103,22 +136,39 @@ func (d *Dispatcher) readLoop() {
 		}
 
 		sent := false
-		startIdx := d.rrIndex % nw
-		for i := 0; i < nw; i++ {
-			idx := (startIdx + i) % nw
-			w := d.workers[idx]
-			select {
-			case w.SendCh <- pkt:
+		idx := d.rrIndex % nw
+
+		// Пробуем текущий worker (chunk affinity)
+		w := d.workers[idx]
+		select {
+		case w.SendCh <- pkt:
+			sent = true
+			d.rrCount++
+			if d.rrCount >= chunkSize {
 				d.rrIndex = (idx + 1) % nw
-				sent = true
-			default:
+				d.rrCount = 0
 			}
-			if sent {
-				break
+		default:
+			// Текущий worker перегружен — ищем свободный, начинаем новый chunk
+			for i := 1; i < nw; i++ {
+				altIdx := (idx + i) % nw
+				select {
+				case d.workers[altIdx].SendCh <- pkt:
+					sent = true
+					d.rrIndex = altIdx
+					d.rrCount = 1 // первый пакет нового chunk'а уже отправлен
+				default:
+				}
+				if sent {
+					break
+				}
 			}
 		}
+
 		if !sent {
-			d.rrIndex = (startIdx + 1) % nw
+			// Все workers перегружены — сдвигаем указатель, пакет дропается
+			d.rrIndex = (idx + 1) % nw
+			d.rrCount = 0
 		}
 		d.mu.Unlock()
 	}
