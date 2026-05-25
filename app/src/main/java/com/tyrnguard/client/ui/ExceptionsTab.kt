@@ -1,13 +1,17 @@
 package com.tyrnguard.client.ui
 
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
@@ -19,28 +23,29 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tyrnguard.client.SettingsStore
+import com.tyrnguard.client.TunnelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-import androidx.compose.runtime.Stable
-
 @Stable
 data class AppItem(
     val name: String,
     val packageName: String,
-    val icon: ImageBitmap?
+    val isSystem: Boolean
 )
 
+// Кэш для мгновенного отображения списка при переключении вкладок
 object AppCache {
     var cachedList: List<AppItem>? = null
 }
@@ -49,164 +54,118 @@ object AppCache {
 @Composable
 fun ExceptionsTab() {
     val context = LocalContext.current.applicationContext
+    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val settingsStore = remember { SettingsStore(context) }
 
-    val savedExcluded by settingsStore.excludedApps.collectAsStateWithLifecycle(initialValue = "")
-    val selectedPackages = remember(savedExcluded) {
-        savedExcluded.split(",").filter { it.isNotEmpty() }.toSet()
-    }
+    val savedExcluded by settingsStore.excludedApps.collectAsStateWithLifecycle("")
+    val selectedPackages = remember(savedExcluded) { savedExcluded.split(",").filter { it.isNotEmpty() }.toSet() }
 
     var appsList by remember { mutableStateOf<List<AppItem>>(AppCache.cachedList ?: emptyList()) }
     var isLoading by remember { mutableStateOf(AppCache.cachedList == null) }
     var searchQuery by remember { mutableStateOf("") }
+    var showSystemApps by remember { mutableStateOf(false) }
 
-    val isWhitelist by settingsStore.isWhitelist.collectAsStateWithLifecycle(initialValue = false)
+    val isWhitelist by settingsStore.isWhitelist.collectAsStateWithLifecycle(false)
 
-    // Load Apps
     LaunchedEffect(Unit) {
         if (AppCache.cachedList != null) return@LaunchedEffect
-        isLoading = true
         withContext(Dispatchers.IO) {
             val list = mutableListOf<AppItem>()
             val pm = context.packageManager
             val installedApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
 
             installedApps.forEach { app ->
-                if (app.packageName != context.packageName &&
-                    !app.packageName.contains("vkontakte") &&
-                    !app.packageName.contains("vk.calls")) {
-                    list.add(AppItem(
-                        name = app.loadLabel(pm).toString(),
-                        packageName = app.packageName,
-                        icon = app.loadIcon(pm)?.toBitmap()?.asImageBitmap()
-                    ))
+                val hasLauncher = pm.getLaunchIntentForPackage(app.packageName) != null
+                val isSys = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                // Исключаем само приложение и приложения ВК, так как они всегда обрабатываются внутри ядра
+                if (hasLauncher && app.packageName != context.packageName && !app.packageName.contains("vkontakte") && !app.packageName.contains("vk.calls")) {
+                    list.add(AppItem(app.loadLabel(pm).toString(), app.packageName, isSys))
                 }
             }
-            appsList = list.sortedBy { it.name.lowercase() }
-            AppCache.cachedList = appsList
+            appsList = list
+            AppCache.cachedList = list
         }
         isLoading = false
     }
 
-    val filteredApps by remember {
+    val filteredAndSortedApps by remember(searchQuery, appsList, selectedPackages, isWhitelist, showSystemApps) {
         derivedStateOf {
-            if (searchQuery.isBlank()) appsList
-            else appsList.filter {
-                it.name.contains(searchQuery, ignoreCase = true) ||
-                it.packageName.contains(searchQuery, ignoreCase = true)
-            }
+            appsList.filter { (showSystemApps || !it.isSystem) && (searchQuery.isBlank() || it.name.contains(searchQuery, true) || it.packageName.contains(searchQuery, true)) }
+                .sortedWith(compareBy<AppItem> { if (selectedPackages.contains(it.packageName)) 0 else 1 }.thenBy { it.name.lowercase() })
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        // Header
-        Text(
-            "Исключения приложений",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
-        )
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Исключения", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Text("Выбрано: ${selectedPackages.size}", modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
+            }
+        }
 
-        // Search Bar
         OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("Поиск приложений...", fontSize = 14.sp) },
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(52.dp),
-            shape = RoundedCornerShape(16.dp),
-            leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(20.dp)) },
-            singleLine = true,
+            value = searchQuery, onValueChange = { searchQuery = it },
+            placeholder = { Text("Поиск приложений...", fontSize = 16.sp) }, modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(20.dp), leadingIcon = { Icon(Icons.Default.Search, null) }, singleLine = true
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Показывать системные", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Switch(checked = showSystemApps, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); showSystemApps = it })
+        }
 
-        // Mode Toggle
-        AppSectionCard(
-            modifier = Modifier.padding(bottom = 12.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+        Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text(
-                        "Режим исключений",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        if (isWhitelist) "БС: Неотмеченные приложения добавляются в туннель"
-                        else "ЧС: Выбранные приложения исключаются из туннеля",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp
-                    )
+                    Text("Режим работы", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(if (isWhitelist) "Белый список: Отмеченные пускаются в VPN" else "Черный список: Отмеченные исключаются", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ModeChip("ЧС", !isWhitelist) {
-                        if (isWhitelist) {
-                            scope.launch {
-                                val all = appsList.map { it.packageName }.toSet()
-                                val inverted = all - selectedPackages
-                                settingsStore.saveExceptionsMode(inverted.joinToString(","), false)
-                                delay(300)
-                                com.tyrnguard.client.TunnelManager.reloadWireGuard()
-                            }
+                SingleChoiceSegmentedButtonRow {
+                    SegmentedButton(
+                        selected = !isWhitelist, shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        onClick = { 
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            if (isWhitelist) {
+                                scope.launch { 
+                                    settingsStore.saveExceptionsMode((appsList.map{it.packageName}.toSet() - selectedPackages).joinToString(","), false)
+                                    delay(300)
+                                    TunnelManager.reloadWireGuard() 
+                                }
+                            } 
                         }
-                    }
-                    ModeChip("БС", isWhitelist) {
-                        if (!isWhitelist) {
-                            scope.launch {
-                                val all = appsList.map { it.packageName }.toSet()
-                                val inverted = all - selectedPackages
-                                settingsStore.saveExceptionsMode(inverted.joinToString(","), true)
-                                delay(300)
-                                com.tyrnguard.client.TunnelManager.reloadWireGuard()
-                            }
+                    ) { Text("ЧС") }
+                    SegmentedButton(
+                        selected = isWhitelist, shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        onClick = { 
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            if (!isWhitelist) {
+                                scope.launch { 
+                                    settingsStore.saveExceptionsMode((appsList.map{it.packageName}.toSet() - selectedPackages).joinToString(","), true)
+                                    delay(300)
+                                    TunnelManager.reloadWireGuard() 
+                                }
+                            } 
                         }
-                    }
+                    ) { Text("БС") }
                 }
             }
         }
 
-        // List
         if (isLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else {
-            val listState = rememberLazyListState()
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredApps, key = { it.packageName }) { app ->
+            LazyColumn(state = rememberLazyListState(), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(filteredAndSortedApps, key = { it.packageName }) { app ->
                     val isSelected = selectedPackages.contains(app.packageName)
-
-                    AppRow(
-                        app = app,
-                        isSelected = isSelected,
-                        onClick = {
-                            val newList = if (isSelected) {
-                                selectedPackages - app.packageName
-                            } else {
-                                selectedPackages + app.packageName
-                            }
-                            scope.launch {
-                                settingsStore.saveExcludedApps(newList.joinToString(","))
-                                com.tyrnguard.client.TunnelManager.reloadWireGuard()
-                            }
+                    AppRow(app, isSelected) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        val newList = if (isSelected) selectedPackages - app.packageName else selectedPackages + app.packageName
+                        scope.launch { 
+                            settingsStore.saveExcludedApps(newList.joinToString(","))
+                            TunnelManager.reloadWireGuard() 
                         }
-                    )
+                    }
                 }
             }
         }
@@ -214,84 +173,35 @@ fun ExceptionsTab() {
 }
 
 @Composable
-private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    label,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center
-                )
-            }
-        },
-        modifier = Modifier.width(64.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            labelColor = MaterialTheme.colorScheme.onSurface
-        ),
-        border = FilterChipDefaults.filterChipBorder(
-            enabled = true,
-            selected = selected,
-            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-            selectedBorderColor = MaterialTheme.colorScheme.primary
-        )
-    )
-}
+fun AppRow(app: AppItem, isSelected: Boolean, modifier: Modifier = Modifier, onToggle: () -> Unit) {
+    val context = LocalContext.current
+    var iconBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    
+    // Асинхронная загрузка иконки (экономит память и не тормозит список)
+    LaunchedEffect(app.packageName) {
+        withContext(Dispatchers.IO) {
+            try { iconBitmap = context.packageManager.getApplicationIcon(app.packageName).toBitmap().asImageBitmap() } catch (_: Exception) {}
+        }
+    }
 
-@Composable
-fun AppRow(app: AppItem, isSelected: Boolean, onClick: () -> Unit) {
+    val animatedColor by animateColorAsState(targetValue = if (isSelected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), animationSpec = spring(stiffness = Spring.StiffnessLow), label = "")
+
     Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = if (isSelected) 4.dp else 0.dp
+        modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).toggleable(value = isSelected, onValueChange = { onToggle() }),
+        shape = RoundedCornerShape(20.dp), color = animatedColor
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (app.icon != null) {
-                Image(
-                    bitmap = app.icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
-                )
+        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (iconBitmap != null) {
+                Image(bitmap = iconBitmap!!, contentDescription = null, modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)))
             } else {
-                Box(modifier = Modifier.size(40.dp).background(Color.Gray, RoundedCornerShape(8.dp)))
+                Box(modifier = Modifier.size(44.dp).background(Color.Gray, RoundedCornerShape(12.dp)))
             }
-
             Spacer(Modifier.width(16.dp))
-
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = app.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
-                )
-                Text(
-                    text = app.packageName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
+                Text(app.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
-
-            Checkbox(
-                checked = isSelected,
-                onCheckedChange = null,
-                colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
-            )
+            Checkbox(checked = isSelected, onCheckedChange = null)
         }
     }
 }

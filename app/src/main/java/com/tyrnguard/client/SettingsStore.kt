@@ -71,6 +71,10 @@ class SettingsStore(context: Context) {
         private val THEME_MODE = stringPreferencesKey("theme_mode") // "system", "light", "dark"
         private val IS_DYNAMIC_COLOR = booleanPreferencesKey("is_dynamic_color")
         private val THEME_PALETTE = stringPreferencesKey("theme_palette")
+        private val SAVED_SERVERS_JSON = stringPreferencesKey("saved_servers_json")
+        private val CUSTOM_MTU = intPreferencesKey("custom_mtu")
+        private val CUSTOM_DNS = stringPreferencesKey("custom_dns")
+        private val CUSTOM_DNS_IP = stringPreferencesKey("custom_dns_ip")
 
         private val UPDATE_LAST_CHECK_AT = longPreferencesKey("update_last_check_at")
         private val UPDATE_LATEST_VERSION = stringPreferencesKey("update_latest_version")
@@ -147,7 +151,12 @@ class SettingsStore(context: Context) {
     // ═══ Theme Mode ═══
     val themeMode: Flow<String> = dataStore.data.map { it[THEME_MODE] ?: "system" }
     val isDynamicColor: Flow<Boolean> = dataStore.data.map { it[IS_DYNAMIC_COLOR] ?: false }
+    val useDynamicColor: Flow<Boolean> = isDynamicColor
     val themePalette: Flow<String> = dataStore.data.map { it[THEME_PALETTE] ?: "indigo" }
+    val savedServersJson: Flow<String> = dataStore.data.map { it[SAVED_SERVERS_JSON] ?: "[]" }
+    val customMtu: Flow<Int> = dataStore.data.map { it[CUSTOM_MTU] ?: 0 }
+    val customDns: Flow<String> = dataStore.data.map { it[CUSTOM_DNS] ?: "default" }
+    val customDnsIp: Flow<String> = dataStore.data.map { it[CUSTOM_DNS_IP] ?: "1.1.1.1" }
 
     val updateLastCheckAt: Flow<Long> = dataStore.data.map { it[UPDATE_LAST_CHECK_AT] ?: 0L }
     val updateLatestVersion: Flow<String> = dataStore.data.map { it[UPDATE_LATEST_VERSION] ?: "" }
@@ -176,6 +185,30 @@ class SettingsStore(context: Context) {
     suspend fun saveThemePalette(palette: String) {
         dataStore.edit { prefs ->
             prefs[THEME_PALETTE] = palette
+        }
+    }
+
+    suspend fun saveServersList(json: String) {
+        dataStore.edit { prefs ->
+            prefs[SAVED_SERVERS_JSON] = json
+        }
+    }
+
+    suspend fun saveCustomMtu(mtu: Int) {
+        dataStore.edit { prefs ->
+            prefs[CUSTOM_MTU] = mtu
+        }
+    }
+
+    suspend fun saveCustomDns(mode: String) {
+        dataStore.edit { prefs ->
+            prefs[CUSTOM_DNS] = mode
+        }
+    }
+
+    suspend fun saveCustomDnsIp(ip: String) {
+        dataStore.edit { prefs ->
+            prefs[CUSTOM_DNS_IP] = ip
         }
     }
 

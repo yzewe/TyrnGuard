@@ -1,286 +1,215 @@
 package com.tyrnguard.client.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Tag
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.tyrnguard.client.SettingsStore
-import com.tyrnguard.client.TunnelManager
-import com.tyrnguard.client.TunnelService
-import com.tyrnguard.client.TyrnGuardColors
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.first
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import kotlin.math.roundToInt
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tyrnguard.client.SettingsStore
+import com.tyrnguard.client.TunnelManager
+import com.tyrnguard.client.TunnelService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.util.UUID
 
-private const val WORKERS_PER_GROUP = 9
+data class TyrnGuardServer(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val ip: String,
+    val password: String
+)
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SettingsTab() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val settingsStore = remember { SettingsStore(context) }
-
-    val currentDensity = LocalDensity.current
-    CompositionLocalProvider(
-        LocalDensity provides Density(currentDensity.density, fontScale = 1f)
-    ) {
-        SettingsTabContent(context, scope, settingsStore)
-    }
+enum class WidgetType(val title: String, val icon: ImageVector, val isWide: Boolean = false) {
+    PING("Пинг", Icons.Default.NetworkPing),
+    SESSION("Сессия", Icons.Default.Timer),
+    WORKERS("Воркеры", Icons.Default.Hub),
+    SPEED("Скорость", Icons.Default.Download),
+    GRAPH("График сети", Icons.Default.QueryStats, isWide = true)
 }
 
+private const val RJS_TEMPORARILY_DISABLED = true
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, settingsStore: SettingsStore) {
-    val savedConnectionPassword by settingsStore.connectionPassword.collectAsStateWithLifecycle(initialValue = "")
-    val savedManualPortsEnabled by settingsStore.manualPortsEnabled.collectAsStateWithLifecycle(initialValue = false)
-    val savedServerDtlsPort by settingsStore.serverDtlsPort.collectAsStateWithLifecycle(initialValue = 56000)
-    val savedServerWgPort by settingsStore.serverWgPort.collectAsStateWithLifecycle(initialValue = 56001)
-    val savedListenPort by settingsStore.listenPort.collectAsStateWithLifecycle(initialValue = 9000)
+fun SettingsTab(snackbarHostState: SnackbarHostState) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val settingsStore = remember { SettingsStore(context) }
+    val prefs = context.getSharedPreferences("tyrnguard_widgets", Context.MODE_PRIVATE)
 
     val tunnelRunning by TunnelManager.running.collectAsStateWithLifecycle()
-
     val cooldownSeconds by TunnelManager.cooldownSeconds.collectAsStateWithLifecycle()
-    var wasRunning by remember { mutableStateOf(false) }
+    val currentPing by TunnelManager.currentPingMs.collectAsStateWithLifecycle()
+    val currentSpeed by TunnelManager.currentSpeedBytes.collectAsStateWithLifecycle()
+    val activeWorkers by TunnelManager.activeWorkers.collectAsStateWithLifecycle()
 
-    LaunchedEffect(tunnelRunning) {
-        if (wasRunning && !tunnelRunning) {
-            TunnelManager.startCooldown(5)
-        }
-        wasRunning = tunnelRunning
-    }
+    val peer by settingsStore.peer.collectAsStateWithLifecycle("")
+    val hashes by settingsStore.vkHashes.collectAsStateWithLifecycle("")
+    val workers by settingsStore.workersPerHash.collectAsStateWithLifecycle(24)
+    val port by settingsStore.listenPort.collectAsStateWithLifecycle(9000)
+    val manualPortsEnabled by settingsStore.manualPortsEnabled.collectAsStateWithLifecycle(false)
+    val serverDtlsPort by settingsStore.serverDtlsPort.collectAsStateWithLifecycle(56000)
+    val sni by settingsStore.sni.collectAsStateWithLifecycle("")
+    val connPass by settingsStore.connectionPassword.collectAsStateWithLifecycle("")
+    val protocol by settingsStore.protocol.collectAsStateWithLifecycle("udp")
+    val captchaMode by settingsStore.captchaMode.collectAsStateWithLifecycle("wv")
+    val captchaMethod by settingsStore.captchaSolveMethod.collectAsStateWithLifecycle("auto")
+    val savedServersJson by settingsStore.savedServersJson.collectAsStateWithLifecycle("[]")
 
-    var peerInput by rememberSaveable { mutableStateOf("") }
-    var vkHash1 by rememberSaveable { mutableStateOf("") }
-    var vkHash2 by rememberSaveable { mutableStateOf("") }
-    var vkHash3 by rememberSaveable { mutableStateOf("") }
-    var vkHash4 by rememberSaveable { mutableStateOf("") }
-    var workersInput by rememberSaveable { mutableFloatStateOf(18f) }
-    var showHashesDialog by rememberSaveable { mutableStateOf(false) }
-    var autoCaptchaEnabled by rememberSaveable { mutableStateOf(true) }
-    var useWVCaptcha by rememberSaveable { mutableStateOf(false) }
-    var isManualMode by rememberSaveable { mutableStateOf(true) }
-    var wbvManualMode by rememberSaveable { mutableStateOf(true) }
-    var manualPortsEnabled by rememberSaveable { mutableStateOf(false) }
-    var serverDtlsPortInput by rememberSaveable { mutableStateOf("56000") }
-    var serverWgPortInput by rememberSaveable { mutableStateOf("56001") }
+    val serverList = remember { mutableStateListOf<TyrnGuardServer>() }
+    var activeWidgetList by remember { mutableStateOf(listOf<WidgetType>()) }
+    var availableWidgetList by remember { mutableStateOf(listOf<WidgetType>()) }
 
-    val allHashes = remember(vkHash1, vkHash2, vkHash3, vkHash4) { listOf(vkHash1, vkHash2, vkHash3, vkHash4) }
-    val uniqueHashes = remember(vkHash1, vkHash2, vkHash3, vkHash4) { allHashes.filter { it.isNotBlank() && it.length >= 16 }.distinct() }
-    val filledHashCount = remember(vkHash1, vkHash2, vkHash3, vkHash4) { uniqueHashes.size }
-    val combinedHashes = remember(vkHash1, vkHash2, vkHash3, vkHash4) { uniqueHashes.joinToString(",") }
-    val dynamicMaxWorkers = remember(filledHashCount) { (filledHashCount.coerceAtLeast(1) * 27).toFloat() }
-    var portInput by rememberSaveable { mutableStateOf("9000") }
-    var sniInput by rememberSaveable { mutableStateOf("") }
-
-    LaunchedEffect(dynamicMaxWorkers) {
-        if (workersInput > dynamicMaxWorkers) {
-            workersInput = dynamicMaxWorkers
-        }
-    }
-
-    val currentWorkers = workersInput.coerceIn(WORKERS_PER_GROUP.toFloat(), dynamicMaxWorkers)
-
-    val hashErrors = remember(vkHash1, vkHash2, vkHash3, vkHash4) {
-        buildList {
-            allHashes.forEachIndexed { i, h ->
-                if (h.isNotBlank() && h.length < 16) add("Хеш ${i + 1} — короткий")
-            }
-            val filled = allHashes.filter { it.isNotBlank() && it.length >= 16 }
-            if (filled.size != filled.distinct().size) add("Есть дубликаты хешей")
-        }
-    }
-    val hasInputHashErrors = remember(vkHash1, vkHash2, vkHash3, vkHash4) { hashErrors.isNotEmpty() }
-
-    var showSecretsDialog by rememberSaveable { mutableStateOf(false) }
-    var initialized by remember { mutableStateOf(false) }
-
-    fun parseHashes(raw: String) {
-        val parts = raw.split(Regex("[,\\s\\n]+")).map { stripVkUrlStatic(it) }.filter { it.isNotEmpty() }
-        vkHash1 = parts.getOrElse(0) { "" }
-        vkHash2 = parts.getOrElse(1) { "" }
-        vkHash3 = parts.getOrElse(2) { "" }
-        vkHash4 = parts.getOrElse(3) { "" }
-    }
-
-    fun normalizeHashes(vararg hashes: String): String {
-        return hashes
-            .map { stripVkUrlStatic(it) }
-            .filter { it.isNotBlank() && it.length >= 16 }
-            .distinct()
-            .joinToString(",")
-    }
-
-    LaunchedEffect(Unit) {
-        val peer = settingsStore.peer.first()
-        val hashes = settingsStore.vkHashes.first()
-        val workers = settingsStore.workersPerHash.first()
-        val port = settingsStore.listenPort.first()
-        val manualPorts = settingsStore.manualPortsEnabled.first()
-        val serverDtlsPort = settingsStore.serverDtlsPort.first()
-        val serverWgPort = settingsStore.serverWgPort.first()
-        val sni = settingsStore.sni.first()
-        val captchaMode = settingsStore.captchaMode.first()
-        val captchaMethod = settingsStore.captchaSolveMethod.first()
-        val wbvCaptchaMethod = settingsStore.captchaWbvSolveMethod.first()
-        
-        peerInput = peer
-        parseHashes(hashes)
-        workersInput = roundToGroup(workers.toFloat(), (listOf(vkHash1, vkHash2, vkHash3, vkHash4).count { it.isNotBlank() }.coerceAtLeast(1) * 27).toFloat())
-        portInput = port.toString()
-        manualPortsEnabled = manualPorts
-        serverDtlsPortInput = serverDtlsPort.toString()
-        serverWgPortInput = serverWgPort.toString()
-        sniInput = sni
-        autoCaptchaEnabled = captchaMode == "auto"
-        useWVCaptcha = captchaMode != "rjs"
-        wbvManualMode = wbvCaptchaMethod != "auto"
-        isManualMode = if (captchaMode == "wv") wbvManualMode else captchaMethod != "auto"
-        
-        initialized = true
-    }
-
-    LaunchedEffect(savedManualPortsEnabled) {
-        manualPortsEnabled = savedManualPortsEnabled
-    }
-
-    LaunchedEffect(savedServerDtlsPort) {
-        serverDtlsPortInput = savedServerDtlsPort.toString()
-    }
-
-    LaunchedEffect(savedServerWgPort) {
-        serverWgPortInput = savedServerWgPort.toString()
-    }
-
-    LaunchedEffect(savedListenPort) {
-        portInput = savedListenPort.toString()
-    }
-
-    if (!initialized) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-        }
-        return
-    }
-
-    var saveJob by remember { mutableStateOf<Job?>(null) }
-
-    fun saveTunnelSettingsNow(hashes: String = combinedHashes, onSaved: (() -> Unit)? = null) {
-        saveJob?.cancel()
-        scope.launch {
-            val savedLocalPort = if (manualPortsEnabled) portInput.toIntOrNull()?.coerceIn(1, 65535) ?: 9000 else 9000
-            settingsStore.save(
-                peerInput, hashes, "",
-                workersInput.toInt(), "udp", savedLocalPort, sniInput, false
-            )
-            onSaved?.invoke()
-        }
-    }
-
-    fun scheduleSave() {
-        saveJob?.cancel()
-        saveJob = scope.launch {
-            delay(300)
-            val savedLocalPort = if (manualPortsEnabled) portInput.toIntOrNull()?.coerceIn(1, 65535) ?: 9000 else 9000
-            settingsStore.save(
-                peerInput, combinedHashes, "",
-                workersInput.toInt(), "udp", savedLocalPort, sniInput, false
-            )
-        }
-    }
-
-    val scrollState = rememberScrollState()
-
-    val isPeerValid = peerInput.isNotBlank() && !peerInput.contains(":")
-    val isHashesValid = combinedHashes.isNotBlank()
-    val isValid = isPeerValid && isHashesValid && savedConnectionPassword.isNotBlank() && !hasInputHashErrors
-    val effectiveServerDtlsPort = if (manualPortsEnabled) serverDtlsPortInput.toIntOrNull()?.coerceIn(1, 65535) ?: 56000 else 56000
-    val effectiveLocalPort = if (manualPortsEnabled) portInput.toIntOrNull()?.coerceIn(1, 65535) ?: 9000 else 9000
     var pendingStartAfterVpnPermission by remember { mutableStateOf(false) }
 
-    fun startTunnelService() {
-        val effectiveCaptchaMode = if (autoCaptchaEnabled) "auto" else if (useWVCaptcha) "wv" else "rjs"
-        val effectiveCaptchaSolveMethod = if (!autoCaptchaEnabled && effectiveCaptchaMode == "wv" && isManualMode) "manual" else "auto"
-        saveJob?.cancel()
-        scope.launch {
-            settingsStore.save(
-                peerInput, combinedHashes, "",
-                workersInput.toInt(), "udp", effectiveLocalPort, sniInput, false
-            )
-            settingsStore.saveCaptchaMode(effectiveCaptchaMode)
-            settingsStore.saveCaptchaSolveMethod(effectiveCaptchaSolveMethod)
+    LaunchedEffect(Unit) {
+        val savedOrder = prefs.getString("order", null)
+        if (savedOrder != null) {
+            try {
+                val active = savedOrder.split(",").mapNotNull { name -> WidgetType.entries.find { it.name == name } }
+                activeWidgetList = active
+                availableWidgetList = WidgetType.entries - active.toSet()
+            } catch (e: Exception) {
+                activeWidgetList = WidgetType.entries
+                availableWidgetList = emptyList()
+            }
+        } else {
+            activeWidgetList = WidgetType.entries
+            availableWidgetList = emptyList()
         }
-        val intent = Intent(context, TunnelService::class.java).apply {
-            action = "START"
-            putExtra("peer", "$peerInput:$effectiveServerDtlsPort")
-            putExtra("vk_hashes", combinedHashes)
-            putExtra("secondary_vk_hash", "")
-            putExtra("workers_per_hash", workersInput.toInt())
-            putExtra("port", effectiveLocalPort)
-            putExtra("sni", sniInput)
-            putExtra("connection_password", savedConnectionPassword)
-            putExtra("captcha_mode", effectiveCaptchaMode)
-            putExtra("captcha_solve_method", effectiveCaptchaSolveMethod)
-        }
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
-        else context.startService(intent)
     }
 
-    val vpnPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
+    LaunchedEffect(savedServersJson) {
+        serverList.clear()
+        try {
+            val array = JSONArray(savedServersJson)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                serverList.add(TyrnGuardServer(obj.optString("id", UUID.randomUUID().toString()), obj.optString("name"), obj.optString("ip").trim(), obj.optString("password").trim()))
+            }
+        } catch (_: Exception) {}
+    }
+
+    val activeServer = remember(peer, serverList.size) { serverList.find { it.ip == peer.trim() } }
+
+    var showServerBottomSheet by remember { mutableStateOf(false) }
+    var showDiagnosticDialog by remember { mutableStateOf(false) }
+    var sessionSeconds by rememberSaveable { mutableIntStateOf(0) }
+    var isEditMode by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(tunnelRunning) {
+        if (tunnelRunning) { while (true) { delay(1000); sessionSeconds++ } } else sessionSeconds = 0
+    }
+
+    val timerString = String.format("%02d:%02d:%02d", sessionSeconds / 3600, (sessionSeconds % 3600) / 60, sessionSeconds % 60)
+
+    fun saveServers() {
+        val array = JSONArray()
+        serverList.forEach { array.put(JSONObject().apply { put("id", it.id); put("name", it.name); put("ip", it.ip.trim()); put("password", it.password.trim()) }) }
+        scope.launch { settingsStore.saveServersList(array.toString()) }
+    }
+
+    fun updateWidgetOrder(newList: List<WidgetType>) {
+        activeWidgetList = newList
+        availableWidgetList = WidgetType.entries - newList.toSet()
+        prefs.edit().putString("order", newList.joinToString(",") { it.name }).apply()
+    }
+
+    fun startTunnel() {
+        if (peer.isBlank() || hashes.isBlank()) { 
+            Toast.makeText(context, "Сначала выберите сервер и добавьте VK хеши в настройках!", Toast.LENGTH_LONG).show()
+            return 
+        }
+        
+        val effectiveServerDtlsPort = if (manualPortsEnabled) serverDtlsPort.coerceIn(1, 65535) else 56000
+        val effectiveLocalPort = if (manualPortsEnabled) port.coerceIn(1, 65535) else 9000
+        val finalPeer = if (peer.contains(":")) peer else "${peer.trim()}:$effectiveServerDtlsPort"
+
+        val effectiveCaptchaMode = if (RJS_TEMPORARILY_DISABLED) "wv" else captchaMode
+        val effectiveCaptchaMethod = if (effectiveCaptchaMode == "wv" && captchaMethod == "manual") "manual" else "auto"
+
+        val intent = Intent(context, TunnelService::class.java).apply {
+            action = "START"
+            putExtra("peer", finalPeer)
+            putExtra("vk_hashes", hashes)
+            putExtra("workers_per_hash", workers)
+            putExtra("port", effectiveLocalPort)
+            putExtra("sni", sni)
+            putExtra("connection_password", connPass.trim())
+            putExtra("protocol", protocol)
+            putExtra("captcha_mode", effectiveCaptchaMode)
+            putExtra("captcha_solve_method", effectiveCaptchaMethod)
+        }
+        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+    }
+
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (pendingStartAfterVpnPermission) {
             pendingStartAfterVpnPermission = false
-            if (VpnService.prepare(context) == null) {
-                startTunnelService()
-            } else {
-                Toast.makeText(context, "VPN-разрешение не выдано", Toast.LENGTH_SHORT).show()
-            }
+            if (VpnService.prepare(context) == null) startTunnel()
+            else Toast.makeText(context, "VPN-разрешение не выдано", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -289,811 +218,541 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
         if (vpnIntent != null) {
             pendingStartAfterVpnPermission = true
             vpnPermissionLauncher.launch(vpnIntent)
-        } else {
-            startTunnelService()
-        }
+        } else startTunnel()
     }
 
-    // ═══ Dialogs ═══
-    if (showSecretsDialog) {
-        SecretsDialog(
-            settingsStore = settingsStore,
-            initialPassword = savedConnectionPassword,
-            manualPortsEnabled = manualPortsEnabled,
-            initialServerDtlsPort = serverDtlsPortInput,
-            initialServerWgPort = serverWgPortInput,
-            initialLocalPort = portInput,
-            onSaved = { dtls, wg, local ->
-                serverDtlsPortInput = dtls
-                serverWgPortInput = wg
-                portInput = local
-            },
-            onDismiss = { showSecretsDialog = false }
-        )
-    }
-
-    if (showHashesDialog) {
-        HashesDialog(
-            hash1 = vkHash1,
-            hash2 = vkHash2,
-            hash3 = vkHash3,
-            hash4 = vkHash4,
-            onSave = { h1, h2, h3, h4 ->
-                val cleaned1 = stripVkUrlStatic(h1)
-                val cleaned2 = stripVkUrlStatic(h2)
-                val cleaned3 = stripVkUrlStatic(h3)
-                val cleaned4 = stripVkUrlStatic(h4)
-                vkHash1 = cleaned1
-                vkHash2 = cleaned2
-                vkHash3 = cleaned3
-                vkHash4 = cleaned4
-                saveTunnelSettingsNow(normalizeHashes(cleaned1, cleaned2, cleaned3, cleaned4)) {
-                    showHashesDialog = false
-                }
-            },
-            onDismiss = { showHashesDialog = false }
-        )
-    }
+    val infiniteTransition = rememberInfiniteTransition(label = "jiggle")
+    val jiggleRotation by infiniteTransition.animateFloat(initialValue = -1.5f, targetValue = 1.5f, animationSpec = infiniteRepeatable(tween(120, easing = LinearEasing), RepeatMode.Reverse), label = "rotation")
+    val jiggleTx by infiniteTransition.animateFloat(initialValue = -1.5f, targetValue = 1.5f, animationSpec = infiniteRepeatable(tween(130, easing = LinearEasing), RepeatMode.Reverse), label = "tx")
+    val jiggleTy by infiniteTransition.animateFloat(initialValue = -1.5f, targetValue = 1.5f, animationSpec = infiniteRepeatable(tween(110, easing = LinearEasing), RepeatMode.Reverse), label = "ty")
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp).animateContentSize(spring(stiffness = Spring.StiffnessLow)),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // ═══ Заголовок раздела ═══
-        Text(
-            "Настройки туннеля",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Дашборд", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+            IconButton(
+                onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); isEditMode = !isEditMode },
+                modifier = Modifier.background(if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape)
+            ) { Icon(if (isEditMode) Icons.Default.Check else Icons.Default.Edit, null, tint = if (isEditMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+
+        val serverInteractionSource = remember { MutableInteractionSource() }
+        val isServerPressed by serverInteractionSource.collectIsPressedAsState()
+        val serverScale by animateFloatAsState(targetValue = if (isServerPressed) 0.96f else 1f, animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f), label = "")
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .scale(serverScale)
+                .graphicsLayer { if (isEditMode) { rotationZ = jiggleRotation * 0.5f; translationX = jiggleTx; translationY = jiggleTy } }
+                .clickable(interactionSource = serverInteractionSource, indication = null) {
+                    if (!tunnelRunning && !isEditMode) showServerBottomSheet = true
+                },
+            shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, tonalElevation = 2.dp
+        ) {
+            Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(modifier = Modifier.size(52.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.onPrimary) }
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Текущий сервер", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(activeServer?.name ?: "Не выбран", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
+                }
+                if (isEditMode) {
+                    Icon(Icons.Default.DragHandle, null, tint = MaterialTheme.colorScheme.outline)
+                } else {
+                    IconButton(onClick = { showDiagnosticDialog = true }) { Icon(Icons.Default.HealthAndSafety, null, tint = MaterialTheme.colorScheme.primary) }
+                }
+            }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 32.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(selected = protocol == "udp", onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); scope.launch { settingsStore.save(peer, hashes, "", workers, "udp", port, sni) } }, label = { Text("UDP", fontWeight = FontWeight.Bold) }, enabled = !tunnelRunning)
+            Spacer(modifier = Modifier.width(12.dp))
+            FilterChip(selected = protocol == "tcp", onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); scope.launch { settingsStore.save(peer, hashes, "", workers, "tcp", port, sni) } }, label = { Text("TCP", fontWeight = FontWeight.Bold) }, enabled = !tunnelRunning)
+        }
+
+        val connectionStatusText = when {
+            tunnelRunning -> "Подключено"
+            cooldownSeconds > 4 -> "Подключение..."
+            cooldownSeconds > 2 -> "Проверка конфигурации..."
+            cooldownSeconds > 0 -> "Установка туннеля..."
+            else -> "Нажмите для старта"
+        }
+
+        val mainBtnInteractionSource = remember { MutableInteractionSource() }
+        val isMainBtnPressed by mainBtnInteractionSource.collectIsPressedAsState()
+        val buttonScale by animateFloatAsState(
+            targetValue = when { isMainBtnPressed -> 0.88f; tunnelRunning -> 1.05f; else -> 1f },
+            animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow), label = "mainBtnScale"
         )
 
-        // ═══ Настройки туннеля ═══
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedTextField(
-                value = peerInput,
-                onValueChange = {
-                    peerInput = it.filter { c -> c != ' ' }
-                    scheduleSave()
-                },
-                label = { Text("IP сервера или домен (без порта)") },
-                placeholder = { Text("1.2.3.4 (или test.com)") },
-                singleLine = true,
-                isError = !isPeerValid && peerInput.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                )
-            )
-
-            OutlinedButton(
-                onClick = { showHashesDialog = true },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (hasInputHashErrors) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                )
-            ) {
-                Icon(Icons.Default.Tag, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Настройка VK Хешей ($filledHashCount/4)", fontWeight = FontWeight.SemiBold)
-            }
-
-            val errorTexts = hashErrors.filter { !it.contains("короткий") }
-            if (errorTexts.isNotEmpty()) {
-                Text(
-                    text = errorTexts.joinToString(", "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-        }
-
-        // ═══ Мощность + Капча ═══
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-                // — Мощность —
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Мощность",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "${currentWorkers.toInt()}",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                Spacer(Modifier.height(4.dp))
-
-                val maxWorkers = dynamicMaxWorkers
-                val minWorkers = WORKERS_PER_GROUP.toFloat()
-                val currentWorkersVal = roundToGroup(currentWorkers.coerceIn(minWorkers, maxWorkers), maxWorkers)
-
-                CompactSteppedSlider(
-                    value = currentWorkersVal,
-                    onValueChange = { raw ->
-                        workersInput = roundToGroup(raw, maxWorkers)
-                        scheduleSave()
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(240.dp)) {
+            if (tunnelRunning || cooldownSeconds > 0) PremiumRadarWaves(tunnelRunning)
+            
+            val circleColor by animateColorAsState(targetValue = if (tunnelRunning) MaterialTheme.colorScheme.primary else if (cooldownSeconds > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant, animationSpec = tween(500, easing = LinearOutSlowInEasing), label = "")
+            val iconColor by animateColorAsState(targetValue = if (tunnelRunning || cooldownSeconds > 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, label = "")
+            
+            Surface(
+                modifier = Modifier
+                    .size(150.dp)
+                    .scale(buttonScale)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = mainBtnInteractionSource, indication = null,
+                        enabled = cooldownSeconds == 0 || tunnelRunning
+                    ) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (tunnelRunning) context.startService(Intent(context, TunnelService::class.java).apply { action = "STOP" })
+                        else requestVpnAndStart()
                     },
-                    valueRange = minWorkers..maxWorkers,
-                    stepSize = WORKERS_PER_GROUP.toFloat(),
-                    enabled = !tunnelRunning,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // — Разделитель —
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                )
-
-                // — Авто капча —
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        if (autoCaptchaEnabled) "Авто капча" else "Ручная капча",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Switch(
-                        checked = autoCaptchaEnabled,
-                        onCheckedChange = { enabled ->
-                            autoCaptchaEnabled = enabled
-                            scope.launch {
-                                if (enabled) {
-                                    settingsStore.saveCaptchaMode("auto")
-                                    settingsStore.saveCaptchaSolveMethod("auto")
-                                } else {
-                                    val mode = if (useWVCaptcha) "wv" else "rjs"
-                                    settingsStore.saveCaptchaMode(mode)
-                                    settingsStore.saveCaptchaSolveMethod(if (mode == "wv" && isManualMode) "manual" else "auto")
-                                }
-                            }
-                        }
-                    )
-                }
-
-                AnimatedVisibility(
-                    visible = !autoCaptchaEnabled,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                        // — Разделитель —
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-
-                        // — Метод обхода капчи —
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Метод обхода капчи",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                ProtocolChip("WBV", useWVCaptcha, enabled = true) {
-                                    useWVCaptcha = true
-                                    isManualMode = wbvManualMode
-                                    scope.launch {
-                                        settingsStore.saveCaptchaMode("wv")
-                                        settingsStore.saveCaptchaSolveMethod(if (wbvManualMode) "manual" else "auto")
-                                    }
-                                }
-                                ProtocolChip("RJS", !useWVCaptcha, enabled = true, isError = false) {
-                                    useWVCaptcha = false
-                                    isManualMode = false
-                                    scope.launch {
-                                        settingsStore.saveCaptchaMode("rjs")
-                                        settingsStore.saveCaptchaSolveMethod("auto")
-                                    }
-                                }
-                            }
-                        }
-
-                        // — Разделитель —
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-
-                        // — Режим обхода —
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Режим обхода",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (useWVCaptcha) {
-                                    ProtocolChip(
-                                        "РУЧ",
-                                        isManualMode,
-                                        enabled = true,
-                                        isError = false
-                                    ) {
-                                        isManualMode = true
-                                        wbvManualMode = true
-                                        scope.launch { settingsStore.saveWbvCaptchaSolveMethod("manual") }
-                                    }
-                                    ProtocolChip(
-                                        "АВТ",
-                                        !isManualMode,
-                                        enabled = true,
-                                        isError = false
-                                    ) {
-                                        isManualMode = false
-                                        wbvManualMode = false
-                                        scope.launch { settingsStore.saveWbvCaptchaSolveMethod("auto") }
-                                    }
-                                } else {
-                                    ProtocolChip(
-                                        "АВТ",
-                                        selected = true,
-                                        enabled = true,
-                                        isError = false
-                                    ) {}
-                                }
-                            }
-                        }
-                    }
-                }
-        }
-
-        // ═══ Кнопки: Секреты + Подключить ═══
-        val tunnelSecretsMissing = savedConnectionPassword.isBlank()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedButton(
-                onClick = { showSecretsDialog = true },
-                modifier = Modifier.height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = if (tunnelSecretsMissing) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface,
-                    contentColor = if (tunnelSecretsMissing) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (tunnelSecretsMissing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                )
+                shape = CircleShape, color = circleColor, shadowElevation = if (tunnelRunning) 24.dp else 8.dp
             ) {
-                Icon(imageVector = Icons.Default.Key, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Секреты", fontWeight = FontWeight.SemiBold)
-            }
-
-            val buttonColor by animateColorAsState(
-                targetValue = if (tunnelRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                animationSpec = tween(400),
-                label = "btn_color"
-            )
-
-            Button(
-                onClick = {
-                    if (tunnelRunning) {
-                        context.startService(
-                            Intent(context, TunnelService::class.java).apply { action = "STOP" }
-                        )
+                Box(contentAlignment = Alignment.Center) {
+                    if (cooldownSeconds > 0 && !tunnelRunning) {
+                        CircularProgressIndicator(color = iconColor, modifier = Modifier.size(70.dp), strokeWidth = 6.dp, strokeCap = StrokeCap.Round)
                     } else {
-                        requestVpnAndStart()
+                        Icon(if (tunnelRunning) Icons.Default.Shield else Icons.Default.PowerSettingsNew, null, modifier = Modifier.size(68.dp), tint = iconColor)
                     }
-                },
-                enabled = (isValid && cooldownSeconds == 0) || tunnelRunning,
-                modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = buttonColor,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Icon(
-                    imageVector = if (tunnelRunning) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = when {
-                        tunnelRunning -> "Остановить"
-                        cooldownSeconds > 0 -> "Подождите ($cooldownSeconds)"
-                        else -> "Подключить"
+                }
+            }
+        }
+        
+        AnimatedContent(
+            targetState = connectionStatusText,
+            transitionSpec = { slideInVertically { it / 2 } + fadeIn(tween(300)) togetherWith slideOutVertically { -it / 2 } + fadeOut(tween(300)) },
+            label = "statusText"
+        ) { text ->
+            Text(text, style = MaterialTheme.typography.titleMedium, color = if (tunnelRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 24.dp))
+        }
+
+        val gridState = rememberLazyGridState()
+        var draggingWidgetIndex by remember { mutableStateOf<Int?>(null) }
+
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxWidth().heightIn(max = 1000.dp).pointerInput(isEditMode, activeWidgetList) {
+                if (!isEditMode) return@pointerInput
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { offset ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val item = gridState.layoutInfo.visibleItemsInfo.find {
+                            offset.x >= it.offset.x && offset.x <= it.offset.x + it.size.width &&
+                            offset.y >= it.offset.y && offset.y <= it.offset.y + it.size.height
+                        }
+                        draggingWidgetIndex = item?.index
                     },
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-    }
-}
-
-// ═══ Reusable mode chip ═══
-@Composable
-private fun ProtocolChip(label: String, selected: Boolean, enabled: Boolean = true, isError: Boolean = false, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        enabled = enabled,
-        label = {
-            Text(
-                label,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isError) MaterialTheme.colorScheme.error else (if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
-            )
-        },
-        shape = RoundedCornerShape(16.dp),
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            labelColor = MaterialTheme.colorScheme.onSurface,
-            disabledLabelColor = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        ),
-        border = FilterChipDefaults.filterChipBorder(
-            enabled = true,
-            selected = selected,
-            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-            selectedBorderColor = MaterialTheme.colorScheme.primary
-        )
-    )
-}
-
-@Composable
-private fun CompactSteppedSlider(
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    valueRange: ClosedFloatingPointRange<Float>,
-    stepSize: Float,
-    enabled: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val activeColor = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.38f)
-    val inactiveColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 1f else 0.55f)
-    val thumbStrokeColor = MaterialTheme.colorScheme.surface
-    val density = LocalDensity.current
-    val thumbRadiusPx = with(density) { 9.dp.toPx() }
-    val trackWidthPx = with(density) { 5.dp.toPx() }
-
-    fun snap(raw: Float): Float {
-        val min = valueRange.start
-        val max = valueRange.endInclusive
-        val snapped = (((raw - min) / stepSize).roundToInt() * stepSize) + min
-        return snapped.coerceIn(min, max)
-    }
-
-    fun positionToValue(x: Float, width: Float): Float {
-        val left = thumbRadiusPx
-        val right = (width - thumbRadiusPx).coerceAtLeast(left + 1f)
-        val fraction = ((x.coerceIn(left, right) - left) / (right - left)).coerceIn(0f, 1f)
-        return snap(valueRange.start + fraction * (valueRange.endInclusive - valueRange.start))
-    }
-
-    Canvas(
-        modifier = modifier
-            .height(34.dp)
-            .pointerInput(enabled, valueRange, stepSize) {
-                if (!enabled) return@pointerInput
-                detectTapGestures { offset ->
-                    onValueChange(positionToValue(offset.x, size.width.toFloat()))
-                }
-            }
-            .pointerInput(enabled, valueRange, stepSize) {
-                if (!enabled) return@pointerInput
-                detectDragGestures { change, _ ->
-                    onValueChange(positionToValue(change.position.x, size.width.toFloat()))
-                }
-            }
-    ) {
-        val centerY = size.height / 2f
-        val left = thumbRadiusPx
-        val right = size.width - thumbRadiusPx
-        val range = (valueRange.endInclusive - valueRange.start).coerceAtLeast(1f)
-        val fraction = ((value - valueRange.start) / range).coerceIn(0f, 1f)
-        val thumbX = left + (right - left) * fraction
-
-        drawLine(
-            color = inactiveColor,
-            start = Offset(left, centerY),
-            end = Offset(right, centerY),
-            strokeWidth = trackWidthPx,
-            cap = StrokeCap.Round
-        )
-        drawLine(
-            color = activeColor,
-            start = Offset(left, centerY),
-            end = Offset(thumbX, centerY),
-            strokeWidth = trackWidthPx,
-            cap = StrokeCap.Round
-        )
-
-        val tickCount = (((valueRange.endInclusive - valueRange.start) / stepSize).roundToInt()).coerceAtLeast(1)
-        repeat(tickCount + 1) { index ->
-            val tickFraction = index / tickCount.toFloat()
-            val tickX = left + (right - left) * tickFraction
-            drawCircle(
-                color = if (tickX <= thumbX) activeColor else inactiveColor,
-                radius = 2.dp.toPx(),
-                center = Offset(tickX, centerY)
-            )
-        }
-
-        drawCircle(
-            color = activeColor,
-            radius = thumbRadiusPx,
-            center = Offset(thumbX, centerY)
-        )
-        drawCircle(
-            color = thumbStrokeColor,
-            radius = thumbRadiusPx,
-            center = Offset(thumbX, centerY),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
-        )
-    }
-}
-
-// ═══ Important Info Dialog ═══
-@Composable
-fun ImportantInfoDialog(onDismiss: () -> Unit) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(0.95f).padding(8.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 6.dp,
-        ) {
-            Column(modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Важная информация", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, null)
-                    }
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                InfoSection("Капча ВК",
-                    "По умолчанию в приложении установлен ручной режим (WBV + РУЧ), но его можно заменить на RJS-АВТ. Это продвинутый автоматический метод решения капчи без всплывающих окон и участия человека, основанный на реверс-инжиниринге JS-кода капчи. Он имитирует действия пользователя в фоновом режиме, обеспечивая бесперебойную работу.\n\nВАЖНО: Если в вашем случае RJS не проходит капчу или выдает ошибки (проблемы со связью или изменения на стороне ВК) — переключитесь обратно в ручной режим."
-                )
-                InfoSection("Как решать капчу",
-                    "Она не сложная: нужно просто потянуть слайдер вправо так, чтобы все элементы (обычно это 3 слова) идеально сошлись в пазле."
-                )
-                InfoSection("Сетевое окружение",
-                    "Отключите другие VPN/Прокси и «Приватный DNS» перед использованием."
-                )
-                InfoSection("Связь потоков и капч",
-                    "Рекомендую выбирать 12-36 потока для меньшего количества капч. Если вам всё равно на частоту ввода капчи в фоне — ставьте 48 и более ради скорости."
-                )
-
-                Spacer(Modifier.height(20.dp))
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(contentColor = MaterialTheme.colorScheme.onPrimary)
-                ) {
-                    Text("Понятно")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun InfoSection(title: String, body: String) {
-    Spacer(Modifier.height(12.dp))
-    Text(
-        title,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold
-    )
-    Spacer(Modifier.height(4.dp))
-    Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-    Spacer(Modifier.height(4.dp))
-}
-
-// Округление до ближайшего кратного WORKERS_PER_GROUP
-private fun roundToGroup(value: Float, maxW: Float = 96f): Float {
-    val rounded = (Math.round(value / WORKERS_PER_GROUP) * WORKERS_PER_GROUP).toFloat()
-    return rounded.coerceIn(WORKERS_PER_GROUP.toFloat(), maxW)
-}
-
-/** Извлекает хеш из VK ссылки */
-private fun stripVkUrlStatic(input: String): String {
-    var s = input.trim()
-    val lower = s.lowercase()
-    val prefixes = listOf(
-        "https://vk.com/call/join/",
-        "http://vk.com/call/join/",
-        "https://m.vk.com/call/join/",
-        "http://m.vk.com/call/join/",
-        "m.vk.com/call/join/",
-        "vk.com/call/join/"
-    )
-    for (prefix in prefixes) {
-        if (lower.startsWith(prefix)) {
-            s = s.substring(prefix.length)
-            break
-        }
-    }
-    val qIdx = s.indexOf('?')
-    if (qIdx != -1) s = s.substring(0, qIdx)
-    val hIdx = s.indexOf('#')
-    if (hIdx != -1) s = s.substring(0, hIdx)
-    return s.trimEnd('/')
-}
-
-// ═══ Модальное окно хешей ═══
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HashesDialog(
-    hash1: String,
-    hash2: String,
-    hash3: String,
-    hash4: String,
-    onSave: (String, String, String, String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var h1 by remember { mutableStateOf(hash1) }
-    var h2 by remember { mutableStateOf(hash2) }
-    var h3 by remember { mutableStateOf(hash3) }
-    var h4 by remember { mutableStateOf(hash4) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 8.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Tag, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("VK Хеши", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
-                    }
-                }
-
-                Text(
-                    text = "Больше хешей — выше лимит потоков и лучшее распределение нагрузки.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-
-                listOf(
-                    Triple("VK Хеш 1 *", h1) { v: String -> h1 = v },
-                    Triple("VK Хеш 2", h2) { v: String -> h2 = v },
-                    Triple("VK Хеш 3", h3) { v: String -> h3 = v },
-                    Triple("VK Хеш 4", h4) { v: String -> h4 = v }
-                ).forEachIndexed { idx, (label, value, onChange) ->
-                    val isShort = value.isNotBlank() && value.length < 16
-                    OutlinedTextField(
-                        value = value,
-                        onValueChange = { raw ->
-                            val cleaned = raw.filter { c -> c != ' ' && c != '\n' }
-                            onChange(stripVkUrlStatic(cleaned))
-                        },
-                        label = { Text(label) },
-                        placeholder = { Text("Ссылка звонка или хеш") },
-                        singleLine = true,
-                        isError = isShort,
-                        supportingText = if (isShort) {
-                            { Text("Хеш ${idx + 1} — короткий (мин. 16)", color = MaterialTheme.colorScheme.error) }
-                        } else null,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        onSave(h1, h2, h3, h4)
-                    },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    enabled = h1.isNotBlank() && h1.length >= 16,
-                    colors = ButtonDefaults.buttonColors(contentColor = MaterialTheme.colorScheme.onPrimary)
-                ) {
-                    Text("Сохранить", fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-// ═══ Модальное окно секретов ═══
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SecretsDialog(
-    settingsStore: SettingsStore,
-    initialPassword: String,
-    manualPortsEnabled: Boolean,
-    initialServerDtlsPort: String,
-    initialServerWgPort: String,
-    initialLocalPort: String,
-    onSaved: (String, String, String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    var passwordInput by rememberSaveable { mutableStateOf(initialPassword) }
-    var serverDtlsPort by rememberSaveable { mutableStateOf(initialServerDtlsPort.ifBlank { "56000" }) }
-    var serverWgPort by rememberSaveable { mutableStateOf(initialServerWgPort.ifBlank { "56001" }) }
-    var localPort by rememberSaveable { mutableStateOf(initialLocalPort.ifBlank { "9000" }) }
-
-    fun normalizePort(value: String, fallback: String): String {
-        return value.toIntOrNull()?.takeIf { it in 1..65535 }?.toString() ?: fallback
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 8.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp).fillMaxWidth().verticalScroll(rememberScrollState())
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Key,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Секреты", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Закрыть")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = passwordInput,
-                    onValueChange = { passwordInput = it },
-                    label = { Text("Заданный пароль туннеля") },
-                    placeholder = { Text("Придумайте надежный пароль") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                )
-
-                if (manualPortsEnabled) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider()
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Порты", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = serverDtlsPort,
-                        onValueChange = { serverDtlsPort = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Порт сервера DTLS") },
-                        placeholder = { Text("56000") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = serverWgPort,
-                        onValueChange = { serverWgPort = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Порт сервера WireGuard") },
-                        placeholder = { Text("56001") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = localPort,
-                        onValueChange = { localPort = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Локальный порт VPN") },
-                        placeholder = { Text("9000") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Button(
-                    onClick = {
-                        val finalDtls = normalizePort(serverDtlsPort, "56000")
-                        val finalWg = normalizePort(serverWgPort, "56001")
-                        val finalLocal = normalizePort(localPort, "9000")
-                        scope.launch {
-                            settingsStore.saveConnectionPassword(passwordInput)
-                            settingsStore.savePorts(finalDtls.toInt(), finalWg.toInt(), finalLocal.toInt())
-                            onSaved(finalDtls, finalWg, finalLocal)
-                            onDismiss()
+                    onDrag = { change, _ ->
+                        val pointer = change.position
+                        val hoveredItem = gridState.layoutInfo.visibleItemsInfo.find {
+                            pointer.x >= it.offset.x && pointer.x <= it.offset.x + it.size.width &&
+                            pointer.y >= it.offset.y && pointer.y <= it.offset.y + it.size.height
+                        }
+                        if (hoveredItem != null && draggingWidgetIndex != null && hoveredItem.index != draggingWidgetIndex) {
+                            val from = draggingWidgetIndex!!
+                            val to = hoveredItem.index
+                            if (from in activeWidgetList.indices && to in activeWidgetList.indices) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val list = activeWidgetList.toMutableList()
+                                val temp = list[from]
+                                list[from] = list[to]
+                                list[to] = temp
+                                updateWidgetOrder(list)
+                                draggingWidgetIndex = to
+                            }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    enabled = passwordInput.isNotEmpty(),
-                    colors = ButtonDefaults.buttonColors(contentColor = MaterialTheme.colorScheme.onPrimary)
+                    onDragEnd = { draggingWidgetIndex = null },
+                    onDragCancel = { draggingWidgetIndex = null }
+                )
+            },
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), userScrollEnabled = false,
+            contentPadding = PaddingValues(bottom = 12.dp)
+        ) {
+            items(activeWidgetList, key = { it.name }, span = { if (it.isWide) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { widget ->
+                val index = activeWidgetList.indexOf(widget)
+                val isDragging = draggingWidgetIndex == index
+                val rotate = if (isEditMode && !isDragging) (if (index % 2 == 0) jiggleRotation else -jiggleRotation) else 0f
+                val tx = if (isEditMode && !isDragging) (if (index % 3 == 0) jiggleTx else -jiggleTx) else 0f
+                val ty = if (isEditMode && !isDragging) (if (index % 2 != 0) jiggleTy else -jiggleTy) else 0f
+                
+                Box(
+                    modifier = Modifier
+                        .animateItem()
+                        .zIndex(if (isDragging) 10f else 0f)
+                        .graphicsLayer { 
+                            rotationZ = rotate
+                            translationX = tx.dp.toPx()
+                            translationY = ty.dp.toPx()
+                            scaleX = if (isDragging) 1.08f else 1f
+                            scaleY = if (isDragging) 1.08f else 1f
+                            shadowElevation = if (isDragging) 30f else 0f 
+                        }
                 ) {
-                    Text("Сохранить", fontWeight = FontWeight.SemiBold)
+                    if (widget == WidgetType.GRAPH) {
+                        SpeedGraphCard(isRunning = tunnelRunning, currentSpeedBytes = currentSpeed, modifier = Modifier.height(160.dp))
+                    } else {
+                        DashboardCard(title = widget.title, icon = widget.icon, modifier = Modifier.height(130.dp)) {
+                            AnimatedContent(
+                                targetState = when (widget) {
+                                    WidgetType.PING -> if (tunnelRunning) { if (currentPing > 0) "${currentPing} ms" else "..." } else "--"
+                                    WidgetType.SESSION -> if (tunnelRunning) timerString else "00:00"
+                                    WidgetType.WORKERS -> "$activeWorkers"
+                                    WidgetType.SPEED -> {
+                                        val speedKb = currentSpeed / 1024f
+                                        if (tunnelRunning) if (speedKb > 1024) String.format("%.1f MB/s", speedKb / 1024f) else String.format("%.0f KB/s", speedKb) else "0 KB/s"
+                                    }
+                                    else -> ""
+                                },
+                                transitionSpec = {
+                                    if (targetState != "--" && targetState != "0 KB/s" && targetState != "00:00" && targetState != "...") {
+                                        slideInVertically(spring(stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(200)) togetherWith 
+                                        slideOutVertically(spring(stiffness = Spring.StiffnessMediumLow)) { -it } + fadeOut(tween(200))
+                                    } else {
+                                        fadeIn(tween(300)) togetherWith fadeOut(tween(300))
+                                    }
+                                }, label = ""
+                            ) { value -> 
+                                Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) 
+                            }
+                        }
+                    }
+                    
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isEditMode,
+                        enter = scaleIn(spring(stiffness = Spring.StiffnessMediumLow)), exit = scaleOut(spring(stiffness = Spring.StiffnessMediumLow)),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+                    ) {
+                        Surface(
+                            onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); updateWidgetOrder(activeWidgetList - widget) },
+                            shape = CircleShape, color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Remove, null, tint = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.size(20.dp)) }
+                        }
+                    }
                 }
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(visible = isEditMode && availableWidgetList.isNotEmpty(), enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(), exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()) {
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) {
+                Text("Доступные виджеты", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2), modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), userScrollEnabled = false,
+                    contentPadding = PaddingValues(bottom = 12.dp)
+                ) {
+                    items(availableWidgetList, key = { it.name }, span = { if (it.isWide) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { widget ->
+                        val index = availableWidgetList.indexOf(widget)
+                        val rotate = (if (index % 2 == 0) -jiggleRotation else jiggleRotation) * 0.7f
+                        
+                        Box(modifier = Modifier.animateItem().graphicsLayer { rotationZ = rotate; alpha = 0.8f }) {
+                            Surface(modifier = Modifier.fillMaxWidth().height(if(widget.isWide) 80.dp else 130.dp), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(widget.icon, null, modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(widget.title, style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                            Surface(
+                                onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); updateWidgetOrder(activeWidgetList + widget) },
+                                shape = CircleShape, color = Color(0xFF4CAF50), modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(32.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(32.dp))
+    }
+
+    if (showDiagnosticDialog) DiagnosticDialog(context = context, peer = peer, hashes = hashes) { showDiagnosticDialog = false }
+
+    if (showServerBottomSheet) {
+        var serverToEdit by remember { mutableStateOf<TyrnGuardServer?>(null) }
+        val listState = rememberLazyListState()
+        var draggingServerIndex by remember { mutableStateOf<Int?>(null) }
+        var isServerEditMode by remember { mutableStateOf(false) }
+
+        ModalBottomSheet(onDismissRequest = { showServerBottomSheet = false }) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).animateContentSize()) {
+                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Список серверов", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    if (serverList.isNotEmpty()) {
+                        TextButton(onClick = { isServerEditMode = !isServerEditMode; haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }) {
+                            Text(if (isServerEditMode) "Готово" else "Правка", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                
+                if (serverList.isEmpty()) {
+                    Text("Список пуст", modifier = Modifier.padding(vertical = 32.dp).align(Alignment.CenterHorizontally), fontSize = 16.sp)
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.weight(1f, fill = false).padding(bottom = 16.dp).pointerInput(isServerEditMode, serverList) {
+                            if (!isServerEditMode) return@pointerInput
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { offset ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val item = listState.layoutInfo.visibleItemsInfo.find { offset.y >= it.offset && offset.y <= it.offset + it.size }
+                                    draggingServerIndex = item?.index
+                                },
+                                onDrag = { change, _ ->
+                                    val pointerY = change.position.y
+                                    val hoveredItem = listState.layoutInfo.visibleItemsInfo.find { pointerY >= it.offset && pointerY <= it.offset + it.size }
+                                    if (hoveredItem != null && draggingServerIndex != null && hoveredItem.index != draggingServerIndex) {
+                                        val from = draggingServerIndex!!
+                                        val to = hoveredItem.index
+                                        if (from in serverList.indices && to in serverList.indices) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            val list = serverList.toMutableList()
+                                            val temp = list[from]
+                                            list[from] = list[to]
+                                            list[to] = temp
+                                            serverList.clear()
+                                            serverList.addAll(list)
+                                            saveServers()
+                                            draggingServerIndex = to
+                                        }
+                                    }
+                                },
+                                onDragEnd = { draggingServerIndex = null },
+                                onDragCancel = { draggingServerIndex = null }
+                            )
+                        }
+                    ) {
+                        items(serverList, key = { it.id }) { server ->
+                            val index = serverList.indexOf(server)
+                            val isSelected = peer.trim() == server.ip.trim()
+                            val isDragging = draggingServerIndex == index
+                            val rotate = if (isServerEditMode && !isDragging) (if (index % 2 == 0) jiggleRotation else -jiggleRotation) else 0f
+                            val tx = if (isServerEditMode && !isDragging) (if (index % 3 == 0) jiggleTx else -jiggleTx) else 0f
+                            val ty = if (isServerEditMode && !isDragging) (if (index % 2 != 0) jiggleTy else -jiggleTy) else 0f
+                            
+                            val itemInteractionSource = remember { MutableInteractionSource() }
+                            val isItemPressed by itemInteractionSource.collectIsPressedAsState()
+                            val itemScale by animateFloatAsState(if (isItemPressed) 0.96f else if (isDragging) 1.05f else 1f, spring(dampingRatio = 0.5f, stiffness = 400f), label = "")
+
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).animateItem()
+                                    .zIndex(if (isDragging) 10f else 0f)
+                                    .graphicsLayer { 
+                                        rotationZ = rotate
+                                        translationX = tx.dp.toPx()
+                                        translationY = ty.dp.toPx()
+                                        scaleX = itemScale
+                                        scaleY = itemScale
+                                        shadowElevation = if (isDragging) 24f else 0f
+                                        alpha = if (isDragging) 0.9f else 1f
+                                    }.clickable(interactionSource = itemInteractionSource, indication = null) {
+                                        if (!isServerEditMode) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); 
+                                            scope.launch { 
+                                                settingsStore.save(server.ip.trim(), hashes, "", workers, protocol, port, sni)
+                                                settingsStore.saveConnectionPassword(server.password.trim()) 
+                                            }; 
+                                            showServerBottomSheet = false 
+                                        }
+                                    }, 
+                                shape = RoundedCornerShape(24.dp), 
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+                            ) {
+                                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (isServerEditMode) {
+                                        Icon(Icons.Default.DragHandle, null, tint = MaterialTheme.colorScheme.outline)
+                                        Spacer(Modifier.width(12.dp))
+                                    } else {
+                                        Icon(Icons.Default.Dns, null, tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(Modifier.width(16.dp))
+                                    }
+                                    
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(server.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+                                        Text(server.ip, style = MaterialTheme.typography.bodyMedium, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                                    }
+                                    
+                                    if (isServerEditMode) {
+                                        IconButton(onClick = { serverToEdit = server }) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) }
+                                    } else if (isSelected) {
+                                        Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Button(onClick = { serverToEdit = TyrnGuardServer(name = "", ip = "", password = "") }, modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) {
+                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Добавить сервер", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        serverToEdit?.let { srv ->
+            AddEditServerDialog(server = srv, onDismiss = { serverToEdit = null }, onSave = { updated -> val idx = serverList.indexOfFirst { it.id == updated.id }; if (idx != -1) serverList[idx] = updated else serverList.add(updated); saveServers(); serverToEdit = null }, onDelete = { serverList.removeIf { it.id == srv.id }; saveServers(); serverToEdit = null })
+        }
+    }
+}
+
+@Composable
+fun PremiumRadarWaves(isConnected: Boolean) {
+    val t = rememberInfiniteTransition(label = "")
+    val scale by t.animateFloat(
+        initialValue = 1.0f, 
+        targetValue = if (isConnected) 1.35f else 1.8f, 
+        animationSpec = infiniteRepeatable(tween(if (isConnected) 2000 else 1500, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = ""
+    )
+    val alpha by t.animateFloat(
+        initialValue = if (isConnected) 0.6f else 0.4f, 
+        targetValue = 0f, 
+        animationSpec = infiniteRepeatable(tween(if (isConnected) 2000 else 1500, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = ""
+    )
+    
+    Box(modifier = Modifier.size(150.dp).scale(scale).alpha(alpha).background(MaterialTheme.colorScheme.primary, CircleShape))
+    if (!isConnected) { 
+        val scale2 by t.animateFloat(initialValue = 0.8f, targetValue = 2.2f, animationSpec = infiniteRepeatable(tween(1500, 500, FastOutSlowInEasing)), label = "")
+        val alpha2 by t.animateFloat(initialValue = 0.3f, targetValue = 0f, animationSpec = infiniteRepeatable(tween(1500, 500, FastOutSlowInEasing)), label = "")
+        Box(modifier = Modifier.size(150.dp).scale(scale2).alpha(alpha2).background(MaterialTheme.colorScheme.primary, CircleShape))
+    }
+}
+
+@Composable
+fun DiagnosticDialog(context: Context, peer: String, hashes: String, onDismiss: () -> Unit) {
+    var step by remember { mutableIntStateOf(0) }
+    var results by remember { mutableStateOf(listOf<Boolean?>(null, null, null, null)) }
+    
+    LaunchedEffect(Unit) {
+        if (peer.isBlank()) {
+            results = listOf(false, false, false, false)
+            step = 4
+            return@LaunchedEffect
+        }
+        
+        withContext(Dispatchers.IO) {
+            val ip = peer.substringBefore(":")
+            
+            val internetOk = try { Socket().use { it.connect(InetSocketAddress("8.8.8.8", 53), 1500) }; true } catch (e: Exception) { false }
+            results = results.toMutableList().apply { set(0, internetOk) }; step = 1
+
+            val serverOk = try {
+                val process = Runtime.getRuntime().exec("ping -c 1 -W 2 $ip")
+                if (process.waitFor() == 0) true else { Socket().use { it.connect(InetSocketAddress(ip, 22), 1500) }; true }
+            } catch (e: Exception) { false }
+            results = results.toMutableList().apply { set(1, serverOk) }; step = 2
+
+            val hashValid = hashes.isNotBlank() && hashes.split(",").any { it.trim().length > 20 }
+            results = results.toMutableList().apply { set(2, hashValid) }; step = 3
+
+            val coreOk = File(context.applicationInfo.nativeLibraryDir + "/libclient.so").exists()
+            delay(500)
+            results = results.toMutableList().apply { set(3, coreOk) }; step = 4
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Column(modifier = Modifier.padding(24.dp).fillMaxWidth().animateContentSize()) {
+                Text("Диагностика", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                val steps = listOf("Доступ к интернету", "Доступность сервера (VPS)", "Формат VK Хэшей", "Ядро туннеля (Core)")
+                steps.forEachIndexed { i, title ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AnimatedContent(targetState = results[i], label = "") { res ->
+                            when (res) {
+                                null -> if (step == i) CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp) else Icon(Icons.Default.Circle, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.outlineVariant)
+                                true -> Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(24.dp), tint = Color(0xFF4CAF50))
+                                false -> Icon(Icons.Default.Cancel, null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Text(title, style = MaterialTheme.typography.bodyLarge, color = if (step == i) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(20.dp), enabled = step == 4) { Text("Закрыть", fontWeight = FontWeight.Bold) }
             }
         }
     }
 }
 
-// extension
-private fun androidx.compose.ui.graphics.Color.luminance(): Float {
-    val r = red
-    val g = green
-    val b = blue
-    return 0.2126f * r + 0.7152f * g + 0.0722f * b
+@Composable
+fun SpeedGraphCard(isRunning: Boolean, currentSpeedBytes: Long, modifier: Modifier = Modifier) {
+    val points = remember { mutableStateListOf<Float>().apply { repeat(30) { add(0f) } } }
+    LaunchedEffect(currentSpeedBytes, isRunning) { points.removeAt(0); points.add(if (isRunning) currentSpeedBytes.toFloat() else 0f) }
+    val maxPoint by remember(points) { derivedStateOf { (points.maxOrNull() ?: 1f).coerceAtLeast(1024 * 50f) } }
+
+    Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.QueryStats, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("Трафик сети", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                val dotColor by animateColorAsState(if (isRunning && currentSpeedBytes > 1024) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, label = "")
+                Box(modifier = Modifier.size(10.dp).background(dotColor, CircleShape))
+            }
+            Spacer(Modifier.height(16.dp))
+            val lineColor = MaterialTheme.colorScheme.primary
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val path = Path()
+                val stepX = size.width / (points.size - 1)
+                points.forEachIndexed { i, v ->
+                    val x = i * stepX
+                    val y = size.height - (v / maxPoint * size.height)
+                    if (i == 0) path.moveTo(x, y) else {
+                        val px = (i - 1) * stepX
+                        val py = size.height - (points[i - 1] / maxPoint * size.height)
+                        path.cubicTo(px + stepX / 2f, py, px + stepX / 2f, y, x, y)
+                    }
+                }
+                drawPath(path = path, color = lineColor, style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                val fillPath = Path().apply { addPath(path); lineTo(size.width, size.height); lineTo(0f, size.height); close() }
+                drawPath(path = fillPath, brush = Brush.verticalGradient(listOf(lineColor.copy(alpha = 0.4f), Color.Transparent), 0f, size.height))
+            }
+        }
+    }
+}
+
+@Composable
+fun DashboardCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.Center) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+            }
+            Spacer(Modifier.height(16.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+fun AddEditServerDialog(server: TyrnGuardServer, onDismiss: () -> Unit, onSave: (TyrnGuardServer) -> Unit, onDelete: () -> Unit) {
+    var name by remember { mutableStateOf(server.name) }
+    var ip by remember { mutableStateOf(server.ip) }
+    var pass by remember { mutableStateOf(server.password) }
+    val isNew = server.name.isBlank()
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isNew) "Новый сервер" else "Настройки сервера", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    if (!isNew) IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
+                }
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Имя (напр. Германия)", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
+                OutlinedTextField(value = ip, onValueChange = { ip = it.filter { c -> !c.isWhitespace() } }, label = { Text("IP адрес", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
+                OutlinedTextField(value = pass, onValueChange = { pass = it.filter { c -> !c.isWhitespace() } }, label = { Text("Пароль от туннеля", fontSize = 14.sp) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
+                Button(onClick = { onSave(server.copy(name = name, ip = ip, password = pass)) }, enabled = name.isNotBlank() && ip.isNotBlank(), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(20.dp)) { Text("Сохранить", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+            }
+        }
+    }
 }

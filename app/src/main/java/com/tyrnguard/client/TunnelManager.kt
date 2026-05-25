@@ -55,9 +55,13 @@ object TunnelManager {
     val config = MutableStateFlow<String?>(null)
     val stats = MutableStateFlow("Ожидание данных...")
     val activeWorkers = MutableStateFlow(0)
+    val currentPingMs = MutableStateFlow(0L)
+    val currentSpeedBytes = MutableStateFlow(0L)
     
     val cooldownSeconds = MutableStateFlow(0)
     private var cooldownJob: Job? = null
+    private var lastTrafficBytes = 0L
+    private var lastTrafficAtMs = 0L
 
     fun clearUnreadErrors() {
         unreadErrorCount.value = 0
@@ -119,6 +123,10 @@ object TunnelManager {
             wrapAuthTimeoutCount = 0
             processStartedAtMs = 0L
             lastActiveAtMs = 0L
+            lastTrafficBytes = 0L
+            lastTrafficAtMs = 0L
+            currentPingMs.value = 0L
+            currentSpeedBytes.value = 0L
             activeHashIndex = 0
             currentParams = params
             lastContext = appContext
@@ -370,6 +378,15 @@ object TunnelManager {
                                 lastActiveAtMs = now
                                 wrapAuthTimeoutCount = 0
                             }
+                        }
+
+                        Regex("(\\d+(?:[.,]\\d+)?)\\s*(?:МБ|MB)", RegexOption.IGNORE_CASE).find(msg)?.let { trafficMatch ->
+                            val totalBytes = ((trafficMatch.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 0.0) * 1024.0 * 1024.0).toLong()
+                            if (lastTrafficAtMs > 0L && now > lastTrafficAtMs && totalBytes >= lastTrafficBytes) {
+                                currentSpeedBytes.value = ((totalBytes - lastTrafficBytes) * 1000L) / (now - lastTrafficAtMs)
+                            }
+                            lastTrafficBytes = totalBytes
+                            lastTrafficAtMs = now
                         }
 
                         updateLog("stats", "[СТАТИСТИКА] $msg", 3, false)
@@ -803,6 +820,8 @@ object TunnelManager {
     fun clearLogs() {
         logs.value = emptyList()
         activeWorkers.value = 0
+        currentPingMs.value = 0L
+        currentSpeedBytes.value = 0L
     }
 
     fun startCooldown(seconds: Int) {

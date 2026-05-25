@@ -1,32 +1,40 @@
 package com.tyrnguard.client.ui
 
+import android.widget.Toast
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.tyrnguard.client.TunnelService
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelSftp
@@ -35,7 +43,7 @@ import com.jcraft.jsch.Session
 import com.tyrnguard.client.DeployManager
 import com.tyrnguard.client.SettingsStore
 import com.tyrnguard.client.TunnelManager
-import com.tyrnguard.client.TyrnGuardColors
+import com.tyrnguard.client.TunnelService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -101,27 +109,23 @@ fun DeployTab() {
     )
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            "Настройки сервера",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Text("Установка сервера", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
 
-        // ═══ Поля ввода в Card ═══
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        // ═══ SSH Доступ ═══
+        CategoryCard("SSH Доступ", Icons.Default.Terminal) {
             OutlinedTextField(
                 value = ip,
                 onValueChange = {
                     ip = it.filter { c -> !c.isWhitespace() }
                     scope.launch { settingsStore.saveDeploy(ip, login, password, savedSshPort) }
                 },
-                label = { Text("IP сервера или домен (без порта)") },
+                label = { Text("IP сервера или домен") },
                 placeholder = { Text("1.2.3.4 (без порта)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -129,10 +133,9 @@ fun DeployTab() {
                 enabled = !isDeploying,
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Spacer(Modifier.height(12.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = login,
                     onValueChange = {
@@ -161,49 +164,23 @@ fun DeployTab() {
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Ручное управление портами",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Switch(
-                    checked = savedManualPorts,
-                    enabled = !isDeploying,
-                    onCheckedChange = { enabled ->
-                        scope.launch { settingsStore.saveManualPortsEnabled(enabled) }
-                    }
-                )
-            }
-        }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-        if (showSecretsDialog) {
-            DeploySecretsDialog(
-                settingsStore = settingsStore,
-                initialMainPass = savedMainPass,
-                initialAdminId = savedAdminId,
-                initialBotToken = savedBotToken,
-                initialSshPort = savedSshPort,
-                manualPortsEnabled = savedManualPorts,
-                initialServerDtlsPort = savedServerDtlsPort.toString(),
-                initialServerWgPort = savedServerWgPort.toString(),
-                onSaved = { _, _ -> },
-                onDismiss = { showSecretsDialog = false }
+            SettingSwitchRow(
+                icon = Icons.Default.SettingsEthernet,
+                title = "Ручные порты",
+                subtitle = "Настроить нестандартные порты",
+                checked = savedManualPorts,
+                enabled = !isDeploying,
+                onCheckedChange = { enabled ->
+                    scope.launch { settingsStore.saveManualPortsEnabled(enabled) }
+                }
             )
         }
 
-        // ═══ Прогресс ═══
-        if (isDeploying) {
-            AppSectionCard(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+        // ═══ Прогресс деплоя ═══
+        AnimatedVisibility(visible = isDeploying) {
+            CategoryCard("Прогресс установки", Icons.Default.CloudUpload) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -212,7 +189,7 @@ fun DeployTab() {
                     Text(
                         text = currentStep,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
@@ -220,10 +197,12 @@ fun DeployTab() {
                     )
                     Text(
                         text = "${(animatedProgress * 100).toInt()}%",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                Spacer(Modifier.height(12.dp))
                 LinearProgressIndicator(
                     progress = { animatedProgress },
                     modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
@@ -233,148 +212,392 @@ fun DeployTab() {
             }
         }
 
-        // ═══ Кнопки ═══
-        val deploySecretsMissing = savedMainPass.isBlank()
-        OutlinedButton(
-            onClick = { showSecretsDialog = true },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = if (deploySecretsMissing) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface,
-                contentColor = if (deploySecretsMissing) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(
-                1.dp,
-                if (deploySecretsMissing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-            )
-        ) {
-            Icon(Icons.Default.Key, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (savedManualPorts) "Секреты (BOT, Пароли, Порты)" else "Секреты (BOT, Пароли)",
-                fontWeight = FontWeight.SemiBold
-            )
-        }
+        // ═══ Кнопки управления ═══
+        CategoryCard("Управление", Icons.Default.Build) {
+            Text("Обязательно задайте секреты перед первой установкой сервера.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Button(
-                onClick = {
-                    if (ip.isBlank() || password.isBlank() || savedMainPass.isBlank()) return@Button
-                    val effectiveLogin = if (login.isBlank()) "root" else login
-                    val effectiveDtlsPort = if (savedManualPorts) savedServerDtlsPort.coerceIn(1, 65535) else 56000
-                    val effectiveWgPort = if (savedManualPorts) savedServerWgPort.coerceIn(1, 65535) else 56001
-                    val appContext = context.applicationContext
-                    DeployManager.scope.launch {
-                        try {
-                            DeployManager.startDeploy()
-                            val intent = Intent(appContext, TunnelService::class.java).apply { action = "DEPLOY_START" }
-                            if (Build.VERSION.SDK_INT >= 26) appContext.startForegroundService(intent)
-                            else appContext.startService(intent)
+            FilledTonalButton(
+                onClick = { showSecretsDialog = true },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Icon(Icons.Default.Key, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (savedManualPorts) "Секреты (BOT, Пароли, Порты)" else "Секреты (BOT, Пароли)",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
-                            val success = performDeploy(
-                                context = appContext,
-                                host = ip, user = effectiveLogin, pass = password, port = savedSshPort.toIntOrNull() ?: 22,
-                                mainPass = savedMainPass, adminId = savedAdminId, botToken = savedBotToken,
-                                dtlsPort = effectiveDtlsPort, wgPort = effectiveWgPort,
-                                onProgress = { p, s -> DeployManager.updateProgress(p, s) }
-                            )
-                            if (success) {
-                                successCountdown = 5
-                                showSuccessBanner = true
+            Spacer(Modifier.height(12.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        if (ip.isBlank() || password.isBlank() || savedMainPass.isBlank()) return@Button
+                        val effectiveLogin = if (login.isBlank()) "root" else login
+                        val effectiveDtlsPort = if (savedManualPorts) savedServerDtlsPort.coerceIn(1, 65535) else 56000
+                        val effectiveWgPort = if (savedManualPorts) savedServerWgPort.coerceIn(1, 65535) else 56001
+                        val appContext = context.applicationContext
+                        
+                        DeployManager.scope.launch {
+                            try {
+                                DeployManager.startDeploy()
+                                
+                                // ВРЕМЕННО ОТКЛЮЧЕНО: Вызов сервиса DEPLOY_START, 
+                                // так как если в TunnelService.kt он не прописан, Android убивает приложение.
+                                // try {
+                                //     val intent = Intent(appContext, TunnelService::class.java).apply { action = "DEPLOY_START" }
+                                //     if (Build.VERSION.SDK_INT >= 26) appContext.startForegroundService(intent)
+                                //     else appContext.startService(intent)
+                                // } catch (e: Exception) { e.printStackTrace() }
+
+                                val success = performDeploy(
+                                    context = appContext,
+                                    host = ip, user = effectiveLogin, pass = password, port = savedSshPort.toIntOrNull() ?: 22,
+                                    mainPass = savedMainPass, adminId = savedAdminId, botToken = savedBotToken,
+                                    dtlsPort = effectiveDtlsPort, wgPort = effectiveWgPort,
+                                    onProgress = { p, s -> DeployManager.updateProgress(p, s) }
+                                )
+                                
+                                if (success) {
+                                    successCountdown = 5
+                                    showSuccessBanner = true
+                                } else {
+                                    // Выводим уведомление, если деплой упал внутри performDeploy
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Ошибка деплоя! Проверьте Логи.", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                DeployManager.writeError("Критическая ошибка: ${e.message}")
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Краш: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                                DeployManager.stopDeploy("Ошибка: ${e.message}")
+                            } finally {
+                                // try { appContext.startService(Intent(appContext, TunnelService::class.java).apply { action = "DEPLOY_STOP" }) } catch (_: Exception) {}
                             }
-                        } finally {
-                            try { appContext.startService(Intent(appContext, TunnelService::class.java).apply { action = "DEPLOY_STOP" }) } catch (_: Exception) {}
                         }
+                    },
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    enabled = !isDeploying && ip.isNotBlank() && password.isNotBlank() && savedMainPass.isNotBlank()
+                ) {
+                    if (isDeploying) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.CloudUpload, null, Modifier.size(20.dp))
                     }
-                },
-                modifier = Modifier.weight(1f).height(50.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                enabled = !isDeploying && ip.isNotBlank() && password.isNotBlank() && savedMainPass.isNotBlank()
-            ) {
-                if (isDeploying) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.CloudUpload, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isDeploying) "Установка" else "Установить", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.width(8.dp))
-                Text(if (isDeploying) "Установка..." else "Установить", fontWeight = FontWeight.Bold)
-            }
 
-            Button(
-                onClick = {
-                    if (ip.isBlank() || password.isBlank()) return@Button
-                    showUninstallDialog = true
-                },
-                modifier = Modifier.weight(1f).height(50.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError
-                ),
-                enabled = !isDeploying && ip.isNotBlank() && password.isNotBlank()
-            ) {
-                Icon(Icons.Default.Delete, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Удалить", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        if (ip.isBlank() || password.isBlank()) return@Button
+                        showUninstallDialog = true
+                    },
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    enabled = !isDeploying && ip.isNotBlank() && password.isNotBlank()
+                ) {
+                    Icon(Icons.Default.Delete, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Удалить", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
-
-        if (showUninstallDialog) {
-            UninstallConfirmDialog(
-                onDismiss = { showUninstallDialog = false },
-                onConfirm = {
-                    showUninstallDialog = false
-                    val effectiveLogin = if (login.isBlank()) "root" else login
-                    val effectiveDtlsPort = if (savedManualPorts) savedServerDtlsPort.coerceIn(1, 65535) else 56000
-                    val effectiveWgPort = if (savedManualPorts) savedServerWgPort.coerceIn(1, 65535) else 56001
-                    DeployManager.scope.launch {
-                        try {
-                            DeployManager.startDeploy()
-                            performUninstall(
-                                host = ip, user = effectiveLogin, pass = password, port = savedSshPort.toIntOrNull() ?: 22,
-                                dtlsPort = effectiveDtlsPort, wgPort = effectiveWgPort,
-                                onProgress = { p, s -> DeployManager.updateProgress(p, s) }
-                            )
-                        } catch (_: Exception) {}
-                    }
-                }
-            )
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
 
         // ═══ Success Banner ═══
-        if (showSuccessBanner) {
+        AnimatedVisibility(visible = showSuccessBanner, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = TyrnGuardColors.connected.copy(alpha = 0.12f),
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                border = BorderStroke(1.dp, TyrnGuardColors.connected.copy(alpha = 0.4f))
+                shape = RoundedCornerShape(32.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TyrnGuardColors.connected)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "Деплой успешно завершен ($successCountdown)",
-                        color = TyrnGuardColors.connected,
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyMedium
+                Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(48.dp).background(Color(0xFF4CAF50).copy(alpha = 0.2f), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4CAF50))
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Успешно", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("Деплой успешно завершен ($successCountdown)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        
+        Spacer(Modifier.height(32.dp))
+    }
+
+    if (showSecretsDialog) {
+        DeploySecretsDialog(
+            settingsStore = settingsStore,
+            initialMainPass = savedMainPass,
+            initialAdminId = savedAdminId,
+            initialBotToken = savedBotToken,
+            initialSshPort = savedSshPort,
+            manualPortsEnabled = savedManualPorts,
+            initialServerDtlsPort = savedServerDtlsPort.toString(),
+            initialServerWgPort = savedServerWgPort.toString(),
+            onSaved = { _, _ -> },
+            onDismiss = { showSecretsDialog = false }
+        )
+    }
+
+    if (showUninstallDialog) {
+        UninstallConfirmDialog(
+            onDismiss = { showUninstallDialog = false },
+            onConfirm = {
+                showUninstallDialog = false
+                val effectiveLogin = if (login.isBlank()) "root" else login
+                val effectiveDtlsPort = if (savedManualPorts) savedServerDtlsPort.coerceIn(1, 65535) else 56000
+                val effectiveWgPort = if (savedManualPorts) savedServerWgPort.coerceIn(1, 65535) else 56001
+                DeployManager.scope.launch {
+                    try {
+                        DeployManager.startDeploy()
+                        performUninstall(
+                            host = ip, user = effectiveLogin, pass = password, port = savedSshPort.toIntOrNull() ?: 22,
+                            dtlsPort = effectiveDtlsPort, wgPort = effectiveWgPort,
+                            onProgress = { p, s -> DeployManager.updateProgress(p, s) }
+                        )
+                    } catch (_: Exception) {}
+                }
+            }
+        )
+    }
+}
+
+// ==================== Dialogs ====================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DeploySecretsDialog(
+    settingsStore: SettingsStore,
+    initialMainPass: String,
+    initialAdminId: String,
+    initialBotToken: String,
+    initialSshPort: String,
+    manualPortsEnabled: Boolean,
+    initialServerDtlsPort: String,
+    initialServerWgPort: String,
+    onSaved: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var passInput by rememberSaveable { mutableStateOf(initialMainPass) }
+    var adminIdInput by rememberSaveable { mutableStateOf(initialAdminId) }
+    var botTokenInput by rememberSaveable { mutableStateOf(initialBotToken) }
+    var sshPortInput by rememberSaveable { mutableStateOf(if (initialSshPort.isBlank()) "22" else initialSshPort) }
+    var dtlsPortInput by rememberSaveable { mutableStateOf(initialServerDtlsPort.ifBlank { "56000" }) }
+    var wgPortInput by rememberSaveable { mutableStateOf(initialServerWgPort.ifBlank { "56001" }) }
+
+    fun normalizePort(value: String, fallback: String): String {
+        return value.toIntOrNull()?.takeIf { it in 1..65535 }?.toString() ?: fallback
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(32.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Column(modifier = Modifier.padding(28.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                Text("Секреты", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(20.dp))
+
+                OutlinedTextField(
+                    value = passInput,
+                    onValueChange = { passInput = it },
+                    label = { Text("Пароль туннеля (любой)") },
+                    placeholder = { Text("Задайте надежный пароль") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Text("Телеграм бот (Опционально)", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = adminIdInput,
+                    onValueChange = { adminIdInput = it },
+                    label = { Text("ID Админа") },
+                    placeholder = { Text("ID из @getmyid_bot") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = botTokenInput,
+                    onValueChange = { botTokenInput = it },
+                    label = { Text("Токен Бота") },
+                    placeholder = { Text("Токен от BotFather") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Text("Порты", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = sshPortInput,
+                    onValueChange = { sshPortInput = it.filter(Char::isDigit).take(5) },
+                    label = { Text("Порт SSH (для деплоя)") },
+                    placeholder = { Text("22") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+
+                if (manualPortsEnabled) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = dtlsPortInput,
+                        onValueChange = { dtlsPortInput = it.filter(Char::isDigit).take(5) },
+                        label = { Text("Порт DTLS сервера") },
+                        placeholder = { Text("56000") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = wgPortInput,
+                        onValueChange = { wgPortInput = it.filter(Char::isDigit).take(5) },
+                        label = { Text("Порт WireGuard сервера") },
+                        placeholder = { Text("56001") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+
+                Spacer(Modifier.height(24.dp))
+                
+                Button(
+                    onClick = {
+                        val finalPort = if (sshPortInput.isBlank()) "22" else sshPortInput
+                        val finalDtls = normalizePort(dtlsPortInput, "56000")
+                        val finalWg = normalizePort(wgPortInput, "56001")
+                        scope.launch {
+                            settingsStore.saveDeploySecrets(passInput, adminIdInput, botTokenInput, finalPort)
+                            settingsStore.savePorts(finalDtls.toInt(), finalWg.toInt(), settingsStore.listenPort.first())
+                            onSaved(finalDtls, finalWg)
+                            onDismiss()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    enabled = passInput.isNotBlank()
+                ) { Text("Сохранить", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun UninstallConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    var confirmText by remember { mutableStateOf("") }
+    val isConfirmed = confirmText.trim().lowercase() == "да"
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(32.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Column(modifier = Modifier.padding(28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    "Удаление сервера",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Text(
+                    "Будут удалены: бинарник, systemd-сервис, бот, конфигурация и правила firewall/NAT.\n\nЭто действие необратимо.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    lineHeight = 24.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = confirmText,
+                    onValueChange = { confirmText = it },
+                    label = { Text("Введите «да» для подтверждения") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.error,
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        onClick = onDismiss, modifier = Modifier.weight(1f).height(56.dp),
+                        shape = RoundedCornerShape(24.dp)
+                    ) { Text("Отмена", fontWeight = FontWeight.Bold) }
+                    
+                    Button(
+                        onClick = onConfirm, modifier = Modifier.weight(1f).height(56.dp),
+                        shape = RoundedCornerShape(24.dp), enabled = isConfirmed,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) { Text("Удалить", fontWeight = FontWeight.Bold) }
                 }
             }
         }
     }
 }
 
-// ==================== SSH ====================
+// ==================== Вспомогательные компоненты UI (TyrnGuard) ====================
+
+@Composable
+private fun CategoryCard(title: String, icon: ImageVector, content: @Composable ColumnScope.() -> Unit) {
+    Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 20.dp)) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(12.dp))
+                Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingSwitchRow(icon: ImageVector, title: String, subtitle: String, checked: Boolean, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().alpha(if(enabled) 1f else 0.5f).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, modifier = Modifier.size(20.dp)) }
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+    }
+}
+
+// ==================== SSH Логика (WDTT) ====================
 
 private class SSHClient(private val session: Session, private val pass: String) {
 
@@ -407,7 +630,7 @@ private class SSHClient(private val session: Session, private val pass: String) 
             val reader = input.bufferedReader()
             val errReader = err.bufferedReader()
             val startTime = System.currentTimeMillis()
-            val progressRegex = Regex("^TyrnGuard_PROGRESS\\|(\\d+\\.?\\d*)\\|(.+)$")
+            val progressRegex = Regex("^WDTT_PROGRESS\\|(\\d+\\.?\\d*)\\|(.+)$")
 
             while (!channel.isClosed || reader.ready() || errReader.ready()) {
                 if (System.currentTimeMillis() - startTime > timeout) {
@@ -423,7 +646,7 @@ private class SSHClient(private val session: Session, private val pass: String) 
                         if (match != null) {
                             val p = match.groupValues[1].toFloatOrNull() ?: 0f
                             DeployManager.updateProgress(p, match.groupValues[2])
-                        } else if (!line.contains("TyrnGuard_PROGRESS")) {
+                        } else if (!line.contains("WDTT_PROGRESS")) {
                             val clean = line.replace(Regex("\u001B\\[[;\\d]*m"), "")
                             result.appendLine(clean)
                             if (clean.contains("[✗]") || clean.contains("FAIL") ||
@@ -525,7 +748,7 @@ private fun isUnsafeLegacyServerAsset(serverFile: File): Boolean {
         (serverFile.containsBinaryToken("wg0") && !serverFile.containsBinaryToken("wdtt0"))
 }
 
-// ==================== Deploy ====================
+// ==================== Деплой ====================
 
 private suspend fun performDeploy(
     context: Context,
@@ -536,7 +759,7 @@ private suspend fun performDeploy(
 ): Boolean = withContext(Dispatchers.IO) {
     var session: Session? = null
     try {
-        onProgress(0.02f, "Подключение...")
+        onProgress(0.02f, "Подключение по SSH...")
         session = createSSHSession(host, user, pass, port)
         DeployManager.activeSession = session
         val ssh = SSHClient(session, pass)
@@ -553,15 +776,8 @@ private suspend fun performDeploy(
             context.assets.open("deploy.sh").use { inp -> FileOutputStream(scriptFile).use { out -> inp.copyTo(out) } }
             context.assets.open("server").use { inp -> FileOutputStream(serverFile).use { out -> inp.copyTo(out) } }
         } catch (e: Exception) {
-            DeployManager.writeError("Assets extraction failed: ${e.message}")
-            DeployManager.stopDeploy("Ошибка: файлы не найдены в assets")
-            return@withContext false
-        }
-        if (isUnsafeLegacyServerAsset(serverFile)) {
-            scriptFile.delete()
-            serverFile.delete()
-            DeployManager.writeError("Unsafe legacy server asset: найдено wg0 или /etc/wireguard. Нужна пересборка server под wdtt0 и /etc/wdtt.")
-            DeployManager.stopDeploy("Нужна пересборка server asset")
+            withContext(Dispatchers.Main) { Toast.makeText(context, "ОШИБКА: Файлы deploy.sh или server не найдены в папке assets!", Toast.LENGTH_LONG).show() }
+            DeployManager.stopDeploy("Файлы не найдены в assets")
             return@withContext false
         }
 
@@ -573,36 +789,35 @@ private suspend fun performDeploy(
 
         onProgress(0.08f, "Установка...")
         val output = ssh.exec(
-            rootCommand("env TyrnGuard_ARGS=${shellQuote(args)} TyrnGuard_DTLS_PORT=$dtlsPort TyrnGuard_WG_PORT=$wgPort TyrnGuard_SSH_PORT=$port bash /tmp/deploy.sh"),
+            rootCommand("env WDTT_ARGS=${shellQuote(args)} WDTT_DTLS_PORT=$dtlsPort WDTT_WG_PORT=$wgPort bash /tmp/deploy.sh"),
             timeout = CMD_TIMEOUT
         )
 
         if (output.contains("✅") || output.contains("Деплой успешно") || output.contains("active")) {
             DeployManager.stopDeploy("success")
-            TunnelManager.addDeploySuccessLog("Деплой успешно завершен. Сервис активен.")
             return@withContext true
         } else if (output.contains("error:")) {
-            DeployManager.writeError("Deploy script output contains error")
-            DeployManager.stopDeploy("Ошибка выполнения скрипта (см. errors.log)")
+            withContext(Dispatchers.Main) { Toast.makeText(context, "Ошибка скрипта на сервере. Ответ: ${output.take(50)}", Toast.LENGTH_LONG).show() }
+            DeployManager.stopDeploy("Ошибка выполнения скрипта")
             return@withContext false
         } else {
             DeployManager.stopDeploy("success")
-            TunnelManager.addDeploySuccessLog("Деплой завершён. (Проверьте подключение)")
             return@withContext true
         }
 
     } catch (e: Exception) {
-        DeployManager.writeError("Deploy critical: ${e.message}\n${e.stackTraceToString().take(500)}")
-        DeployManager.stopDeploy("Ошибка: ${e.message?.take(100)}")
+        // ВОТ ЗДЕСЬ ПРИЛОЖЕНИЕ ПОКАЖЕТ ТОЧНУЮ ОШИБКУ ПОДКЛЮЧЕНИЯ
+        val errorMsg = e.message ?: "Неизвестная ошибка"
+        withContext(Dispatchers.Main) { 
+            Toast.makeText(context, "СБОЙ SSH: $errorMsg", Toast.LENGTH_LONG).show() 
+        }
+        DeployManager.stopDeploy("Ошибка: ${errorMsg.take(50)}")
         return@withContext false
     } finally {
         try { session?.disconnect() } catch (_: Exception) {}
         DeployManager.activeSession = null
     }
 }
-
-
-// ==================== Uninstall ====================
 
 private suspend fun performUninstall(
     host: String, user: String, pass: String, port: Int,
@@ -629,7 +844,7 @@ private suspend fun performUninstall(
         )
 
         onProgress(0.30f, "Удаление через deploy.sh...")
-        ssh.exec(rootCommand("[ -f /tmp/deploy.sh ] && env TyrnGuard_DTLS_PORT=$dtlsPort TyrnGuard_WG_PORT=$wgPort TyrnGuard_SSH_PORT=$port bash /tmp/deploy.sh uninstall 2>/dev/null || true"), timeout = 30000L)
+        ssh.exec(rootCommand("[ -f /tmp/deploy.sh ] && env WDTT_DTLS_PORT=$dtlsPort WDTT_WG_PORT=$wgPort bash /tmp/deploy.sh uninstall 2>/dev/null || true"), timeout = 30000L)
 
         onProgress(0.45f, "Удаление бинарника...")
         ssh.exec(rootCommand("pkill -x wdtt-server 2>/dev/null || true; rm -f /usr/local/bin/wdtt-server"), timeout = 10000L)
@@ -640,16 +855,14 @@ private suspend fun performUninstall(
                 "if command -v iptables >/dev/null 2>&1; then " +
                     "for i in 1 2 3 4 5; do " +
                     "for iface in $(ls /sys/class/net 2>/dev/null || true); do " +
-                    "iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o \"${'$'}iface\" -m comment --comment TyrnGuard_MANAGED -j MASQUERADE 2>/dev/null || true; " +
+                    "iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o \"${'$'}iface\" -m comment --comment WDTT_MANAGED -j MASQUERADE 2>/dev/null || true; " +
                     "done; " +
-                    "iptables -D INPUT -p udp --dport $dtlsPort -m comment --comment TyrnGuard_MANAGED -j ACCEPT 2>/dev/null || true; " +
-                    "iptables -D INPUT -p udp --dport $wgPort -m comment --comment TyrnGuard_MANAGED -j ACCEPT 2>/dev/null || true; " +
-                    "iptables -D INPUT -p udp --dport 56000 -m comment --comment TyrnGuard_MANAGED -j ACCEPT 2>/dev/null || true; " +
-                    "iptables -D INPUT -p udp --dport 56001 -m comment --comment TyrnGuard_MANAGED -j ACCEPT 2>/dev/null || true; " +
-                    "iptables -D INPUT -p tcp --dport $port -m comment --comment TyrnGuard_MANAGED -j ACCEPT 2>/dev/null || true; " +
-                    "iptables -D INPUT -p tcp --dport 22 -m comment --comment TyrnGuard_MANAGED -j ACCEPT 2>/dev/null || true; " +
-                    "iptables -D FORWARD -i wdtt0 -m comment --comment TyrnGuard_MANAGED -j ACCEPT 2>/dev/null || true; " +
-                    "iptables -D FORWARD -o wdtt0 -m comment --comment TyrnGuard_MANAGED -j ACCEPT 2>/dev/null || true; " +
+                    "iptables -D INPUT -p udp --dport $dtlsPort -m comment --comment WDTT_MANAGED -j ACCEPT 2>/dev/null || true; " +
+                    "iptables -D INPUT -p udp --dport $wgPort -m comment --comment WDTT_MANAGED -j ACCEPT 2>/dev/null || true; " +
+                    "iptables -D INPUT -p udp --dport 56000 -m comment --comment WDTT_MANAGED -j ACCEPT 2>/dev/null || true; " +
+                    "iptables -D INPUT -p udp --dport 56001 -m comment --comment WDTT_MANAGED -j ACCEPT 2>/dev/null || true; " +
+                    "iptables -D FORWARD -i wdtt0 -m comment --comment WDTT_MANAGED -j ACCEPT 2>/dev/null || true; " +
+                    "iptables -D FORWARD -o wdtt0 -m comment --comment WDTT_MANAGED -j ACCEPT 2>/dev/null || true; " +
                     "done; fi; " +
                     "if command -v nft >/dev/null 2>&1; then " +
                     "nft delete table ip wdtt 2>/dev/null || true; " +
@@ -660,12 +873,11 @@ private suspend fun performUninstall(
             timeout = 15000L
         )
 
-        onProgress(0.75f, "Удаление TyrnGuard-интерфейса...")
+        onProgress(0.75f, "Удаление WDTT-интерфейса...")
         ssh.exec(
             rootCommand(
                 "ip link show wdtt0 >/dev/null 2>&1 && ip link del wdtt0 2>/dev/null || true; " +
-                    "[ -d /etc/wdtt ] && find /etc/wdtt -mindepth 1 -maxdepth 1 ! -name passwords.json -exec rm -rf {} + 2>/dev/null || true; " +
-                    "[ -f /etc/wdtt/passwords.json ] && chmod 600 /etc/wdtt/passwords.json 2>/dev/null || true"
+                    "rm -rf /etc/wdtt"
             ),
             timeout = 10000L
         )
@@ -682,231 +894,5 @@ private suspend fun performUninstall(
     } finally {
         try { session?.disconnect() } catch (_: Exception) {}
         DeployManager.activeSession = null
-    }
-}
-
-// ==================== Dialogs ====================
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun DeploySecretsDialog(
-    settingsStore: SettingsStore,
-    initialMainPass: String,
-    initialAdminId: String,
-    initialBotToken: String,
-    initialSshPort: String,
-    manualPortsEnabled: Boolean,
-    initialServerDtlsPort: String,
-    initialServerWgPort: String,
-    onSaved: (String, String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    var passInput by rememberSaveable { mutableStateOf(initialMainPass) }
-    var adminIdInput by rememberSaveable { mutableStateOf(initialAdminId) }
-    var botTokenInput by rememberSaveable { mutableStateOf(initialBotToken) }
-    var sshPortInput by rememberSaveable { mutableStateOf(if (initialSshPort.isBlank()) "22" else initialSshPort) }
-    var dtlsPortInput by rememberSaveable { mutableStateOf(initialServerDtlsPort.ifBlank { "56000" }) }
-    var wgPortInput by rememberSaveable { mutableStateOf(initialServerWgPort.ifBlank { "56001" }) }
-
-    fun normalizePort(value: String, fallback: String): String {
-        return value.toIntOrNull()?.takeIf { it in 1..65535 }?.toString() ?: fallback
-    }
-
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 8.dp
-        ) {
-            Column(modifier = Modifier.padding(24.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Секреты Деплоя", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
-                    }
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = passInput,
-                    onValueChange = { passInput = it },
-                    label = { Text("Задайте пароль туннеля (любой)") },
-                    placeholder = { Text("Придумайте надежный пароль") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
-                )
-
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
-                Text("Телеграм бот для управления", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = adminIdInput,
-                    onValueChange = { adminIdInput = it },
-                    label = { Text("ID Админа (Опционально)") },
-                    placeholder = { Text("ID из @getmyid_bot") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                    )
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = botTokenInput,
-                    onValueChange = { botTokenInput = it },
-                    label = { Text("Токен Бота (Опционально)") },
-                    placeholder = { Text("Токен от BotFather") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
-                )
-
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
-                Text("SSH Порт", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = sshPortInput,
-                    onValueChange = { sshPortInput = it.filter(Char::isDigit).take(5) },
-                    label = { Text("Порт для деплоя SSH") },
-                    placeholder = { Text("22") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                    )
-                )
-
-                if (manualPortsEnabled) {
-                    Spacer(Modifier.height(16.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(8.dp))
-                    Text("Порты сервера", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = dtlsPortInput,
-                        onValueChange = { dtlsPortInput = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Порт DTLS сервера") },
-                        placeholder = { Text("56000") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                        )
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = wgPortInput,
-                        onValueChange = { wgPortInput = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Порт WireGuard сервера") },
-                        placeholder = { Text("56001") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                        )
-                    )
-                }
-
-                Spacer(Modifier.height(24.dp))
-                Button(
-                    onClick = {
-                        val finalPort = if (sshPortInput.isBlank()) "22" else sshPortInput
-                        val finalDtls = normalizePort(dtlsPortInput, "56000")
-                        val finalWg = normalizePort(wgPortInput, "56001")
-                        scope.launch {
-                            settingsStore.saveDeploySecrets(passInput, adminIdInput, botTokenInput, finalPort)
-                            settingsStore.savePorts(finalDtls.toInt(), finalWg.toInt(), settingsStore.listenPort.first())
-                            onSaved(finalDtls, finalWg)
-                            onDismiss()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    enabled = passInput.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(contentColor = MaterialTheme.colorScheme.onPrimary)
-                ) { Text("Сохранить", fontWeight = FontWeight.SemiBold) }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun UninstallConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    var confirmText by remember { mutableStateOf("") }
-    val isConfirmed = confirmText.trim().lowercase() == "да"
-
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 8.dp
-        ) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(
-                    "Удаление TyrnGuard с сервера",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error
-                )
-                Text(
-                    "Будут удалены: бинарник, systemd-сервис, бот, конфигурация TyrnGuard и только помеченные правила firewall/NAT для TyrnGuard.\n\nЭто действие необратимо.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedTextField(
-                    value = confirmText,
-                    onValueChange = { confirmText = it },
-                    label = { Text("Введите «да» для подтверждения") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.error,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                    )
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
-                        onClick = onDismiss, modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                    ) { Text("Отмена") }
-                    Button(
-                        onClick = onConfirm, modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(16.dp), enabled = isConfirmed,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        )
-                    ) {
-                        Icon(Icons.Default.Delete, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Удалить", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
     }
 }
