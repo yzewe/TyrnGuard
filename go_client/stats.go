@@ -7,11 +7,11 @@ import (
 )
 
 type Stats struct {
-	ActiveConnections int32
 	Reconnects        int64
 	TotalBytesUp      int64
 	TotalBytesDown    int64
 	CredsErrors       int64
+	ActiveConnections int32
 }
 
 func NewStats() *Stats {

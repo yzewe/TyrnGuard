@@ -109,14 +109,14 @@ fun MainSettingsMenu(onNavigate: (String) -> Unit) {
     val currentPeer by settingsStore.peer.collectAsStateWithLifecycle("")
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("РќР°СЃС‚СЂРѕР№РєРё", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+        Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
         
-        MenuCategoryItem("РЎРµС‚СЊ", "Р СѓС‡РЅС‹Рµ РїРѕСЂС‚С‹, MTU, DNS, SNI", Icons.Default.Language) { onNavigate("network") }
-        MenuCategoryItem("РџСЂРѕРёР·РІРѕРґРёС‚РµР»СЊРЅРѕСЃС‚СЊ", "РљР»СЋС‡Рё, РџРѕС‚РѕРєРё, РљР°РїС‡Р° (RJS)", Icons.Default.Speed) { onNavigate("performance") }
-        MenuCategoryItem("РРЅС‚РµСЂС„РµР№СЃ", "РўРµРјС‹, Р¦РІРµС‚Р°, РћС‚РєР»РёРє", Icons.Default.Palette) { onNavigate("interface") }
+        MenuCategoryItem("Сеть", "Ручные порты, MTU, DNS, SNI", Icons.Default.Language) { onNavigate("network") }
+        MenuCategoryItem("Производительность", "Ключи, Потоки, Капча (RJS)", Icons.Default.Speed) { onNavigate("performance") }
+        MenuCategoryItem("Интерфейс", "Темы, Цвета, Отклик", Icons.Default.Palette) { onNavigate("interface") }
         
-        CategoryCard("РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ", Icons.Default.Share) {
-            Text("РРјРїРѕСЂС‚ Р·Р°РїСѓСЃС‚РёС‚ РЅР°СЃС‚СЂРѕР№РєСѓ РїРѕ СЃСЃС‹Р»РєРµ РёР· Р±СѓС„РµСЂР° РѕР±РјРµРЅР°.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
+        CategoryCard("Синхронизация", Icons.Default.Share) {
+            Text("Импорт запустит настройку по ссылке из буфера обмена.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(20.dp),
@@ -128,11 +128,11 @@ fun MainSettingsMenu(onNavigate: (String) -> Unit) {
                                 val b64Data = text.substringAfter("data=")
                                 val json = JSONObject(String(Base64.decode(b64Data, Base64.URL_SAFE)))
                                 scope.launch { addServerToStoreDirect(context, settingsStore, json) }
-                            } catch (e: Exception) { Toast.makeText(context, "РћС€РёР±РєР° С‡С‚РµРЅРёСЏ СЃСЃС‹Р»РєРё", Toast.LENGTH_SHORT).show() }
-                        } else Toast.makeText(context, "РЎСЃС‹Р»РєР° РЅРµ РЅР°Р№РґРµРЅР° РІ Р±СѓС„РµСЂРµ", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) { Toast.makeText(context, "Ошибка чтения ссылки", Toast.LENGTH_SHORT).show() }
+                        } else Toast.makeText(context, "Ссылка не найдена в буфере", Toast.LENGTH_SHORT).show()
                     }
                 ) {
-                    Icon(Icons.Default.ContentPasteGo, null); Spacer(Modifier.width(8.dp)); Text("РРјРїРѕСЂС‚", fontSize = 16.sp)
+                    Icon(Icons.Default.ContentPasteGo, null); Spacer(Modifier.width(8.dp)); Text("Импорт", fontSize = 16.sp)
                 }
 
                 FilledTonalButton(
@@ -141,24 +141,24 @@ fun MainSettingsMenu(onNavigate: (String) -> Unit) {
                         scope.launch {
                             val serversJson = settingsStore.savedServersJson.first()
                             if (currentPeer.isBlank() || serversJson.isBlank()) { 
-                                Toast.makeText(context, "РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРёС‚Рµ СЃРµСЂРІРµСЂ РЅР° РіР»Р°РІРЅРѕРј СЌРєСЂР°РЅРµ", Toast.LENGTH_SHORT).show(); return@launch
+                                Toast.makeText(context, "Сначала выберите сервер на главном экране", Toast.LENGTH_SHORT).show(); return@launch
                             }
                             val servers = JSONArray(serversJson)
                             var activeObj: JSONObject? = null
                             for (i in 0 until servers.length()) { if (servers.getJSONObject(i).optString("ip") == currentPeer) { activeObj = servers.getJSONObject(i); break } }
-                            if (activeObj == null) { Toast.makeText(context, "РђРєС‚РёРІРЅС‹Р№ СЃРµСЂРІРµСЂ РЅРµ РЅР°Р№РґРµРЅ", Toast.LENGTH_SHORT).show(); return@launch }
+                            if (activeObj == null) { Toast.makeText(context, "Активный сервер не найден", Toast.LENGTH_SHORT).show(); return@launch }
                             
                             val b64 = Base64.encodeToString(activeObj.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)
-                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "РљРѕРЅС„РёРіСѓСЂР°С†РёСЏ TyrnGuard:\n\ntyrnguard://config?data=$b64") }, "РџРѕРґРµР»РёС‚СЊСЃСЏ РєРѕРЅС„РёРіСѓСЂР°С†РёРµР№"))
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Конфигурация TyrnGuard:\n\ntyrnguard://config?data=$b64") }, "Поделиться конфигурацией"))
                         }
                     }
                 ) {
-                    Icon(Icons.Default.IosShare, null); Spacer(Modifier.width(8.dp)); Text("Р­РєСЃРїРѕСЂС‚", fontSize = 16.sp)
+                    Icon(Icons.Default.IosShare, null); Spacer(Modifier.width(8.dp)); Text("Экспорт", fontSize = 16.sp)
                 }
             }
         }
 
-        MenuCategoryItem("Рћ РїСЂРёР»РѕР¶РµРЅРёРё", "Р’РµСЂСЃРёСЏ, РћР±РЅРѕРІР»РµРЅРёСЏ, GitHub", Icons.Default.Info) { onNavigate("about") }
+        MenuCategoryItem("О приложении", "Версия, Обновления, GitHub", Icons.Default.Info) { onNavigate("about") }
         Spacer(Modifier.height(32.dp))
     }
 }
@@ -191,7 +191,7 @@ fun NetworkSettings(onBack: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("РЎРµС‚СЊ", onBack)
+        SettingsHeader("Сеть", onBack)
         
         CategoryCard("Подключение", Icons.Default.SettingsInputComponent) {
             OutlinedTextField(value = listenInput, onValueChange = { listenInput = it.filter { c -> c.isDigit() }.take(5); saveListenPort() }, label = { Text("Локальный порт VPN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
@@ -210,8 +210,8 @@ fun NetworkSettings(onBack: () -> Unit) {
 
         CategoryCard("Расширенные", Icons.AutoMirrored.Filled.CompareArrows) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Р Р°Р·РјРµСЂ РїР°РєРµС‚Р° (MTU)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                Text(if (customMtu == 0) "РђРІС‚Рѕ" else "$customMtu", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text("Размер пакета (MTU)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                Text(if (customMtu == 0) "Авто" else "$customMtu", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
             Slider(
                 value = if (customMtu == 0) 1279f else customMtu.toFloat(),
@@ -224,9 +224,9 @@ fun NetworkSettings(onBack: () -> Unit) {
             )
         }
 
-        CategoryCard("DNS РЎРµСЂРІРµСЂ", Icons.Default.Dns) {
+        CategoryCard("DNS Сервер", Icons.Default.Dns) {
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("default" to "РђРІС‚Рѕ", "adguard" to "AdGuard", "cloudflare" to "1.1.1.1", "custom" to "РЎРІРѕР№").forEachIndexed { i, (v, l) ->
+                listOf("default" to "Авто", "adguard" to "AdGuard", "cloudflare" to "1.1.1.1", "custom" to "Свой").forEachIndexed { i, (v, l) ->
                     SegmentedButton(
                         selected = dnsType == v, shape = SegmentedButtonDefaults.itemShape(index = i, count = 4),
                         onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); scope.launch { settingsStore.saveCustomDns(v); TunnelManager.reloadWireGuard() } }
@@ -237,7 +237,7 @@ fun NetworkSettings(onBack: () -> Unit) {
                 OutlinedTextField(
                     value = customDnsIp,
                     onValueChange = { scope.launch { settingsStore.saveCustomDnsIp(it.trim()) } },
-                    label = { Text("IP DNS СЃРµСЂРІРµСЂР°") },
+                    label = { Text("IP DNS сервера") },
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                     shape = RoundedCornerShape(16.dp)
                 )
@@ -287,34 +287,34 @@ fun PerformanceSettings(onBack: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("РџСЂРѕРёР·РІРѕРґРёС‚РµР»СЊРЅРѕСЃС‚СЊ", onBack)
+        SettingsHeader("Производительность", onBack)
         
-        CategoryCard("VK РҐСЌС€Рё (РљР»СЋС‡Рё)", Icons.Default.VpnKey) {
-            Text("Р‘РѕР»СЊС€Рµ С…РµС€РµР№ вЂ” РІС‹С€Рµ Р»РёРјРёС‚ РїРѕС‚РѕРєРѕРІ Рё Р»СѓС‡С€РµРµ СЂР°СЃРїСЂРµРґРµР»РµРЅРёРµ РЅР°РіСЂСѓР·РєРё.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        CategoryCard("VK Хэши (Ключи)", Icons.Default.VpnKey) {
+            Text("Больше хешей — выше лимит потоков и лучшее распределение нагрузки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
 
             listOf(
-                Triple("РћСЃРЅРѕРІРЅРѕР№ С…РµС€", h1) { v: String -> h1 = stripVkUrlStatic(v); saveAll() },
-                Triple("Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Р№ 1", h2) { v: String -> h2 = stripVkUrlStatic(v); saveAll() },
-                Triple("Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Р№ 2", h3) { v: String -> h3 = stripVkUrlStatic(v); saveAll() }
+                Triple("Основной хеш", h1) { v: String -> h1 = stripVkUrlStatic(v); saveAll() },
+                Triple("Дополнительный 1", h2) { v: String -> h2 = stripVkUrlStatic(v); saveAll() },
+                Triple("Дополнительный 2", h3) { v: String -> h3 = stripVkUrlStatic(v); saveAll() }
             ).forEach { (label, value, onChange) ->
                 val isShort = value.isNotBlank() && value.length < 16
                 OutlinedTextField(
                     value = value, onValueChange = onChange, label = { Text(label) },
                     isError = isShort,
-                    supportingText = if (isShort) { { Text("РҐРµС€ СЃР»РёС€РєРѕРј РєРѕСЂРѕС‚РєРёР№ (РјРёРЅ. 16)", color = MaterialTheme.colorScheme.error) } } else null,
+                    supportingText = if (isShort) { { Text("Хеш слишком короткий (мин. 16)", color = MaterialTheme.colorScheme.error) } } else null,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(16.dp)
                 )
             }
         }
 
-        CategoryCard("РњРѕС‰РЅРѕСЃС‚СЊ", Icons.Default.Memory) {
+        CategoryCard("Мощность", Icons.Default.Memory) {
             val filledHashCount = listOf(h1, h2, h3).count { it.isNotBlank() && it.length >= 16 }.coerceAtLeast(1)
             val maxWorkers = (filledHashCount * 32).toFloat()
             val currentW = workersCount.toFloat().coerceIn(12f, maxWorkers)
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("РџРѕС‚РѕРєРё РѕР±СЂР°Р±РѕС‚РєРё", fontWeight = FontWeight.Bold)
+                Text("Потоки обработки", fontWeight = FontWeight.Bold)
                 Text("${currentW.toInt()}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
             Slider(
@@ -329,27 +329,27 @@ fun PerformanceSettings(onBack: () -> Unit) {
                 },
                 valueRange = 12f..maxWorkers
             )
-            Text("РћРїС‚РёРјР°Р»СЊРЅРѕ: 24-36. Р‘РѕР»СЊС€Рµ вЂ” РІС‹С€Рµ СЃРєРѕСЂРѕСЃС‚СЊ, РЅРѕ СЂРёСЃРє Р±Р»РѕРєРёСЂРѕРІРєРё IP.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Оптимально: 24-36. Больше — выше скорость, но риск блокировки IP.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        CategoryCard("РљР°РїС‡Р°", Icons.Default.SmartToy) {
-            Text("РњРµС‚РѕРґ СЂРµС€РµРЅРёСЏ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        CategoryCard("Капча", Icons.Default.SmartToy) {
+            Text("Метод решения", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = captchaMode == "wv", onClick = { scope.launch { settingsStore.saveCaptchaMode("wv") } }, label = { Text("WebView") }, shape = RoundedCornerShape(16.dp))
                 FilterChip(selected = captchaMode == "rjs", onClick = { if (!RJS_TEMPORARILY_DISABLED) scope.launch { settingsStore.saveCaptchaMode("rjs"); settingsStore.saveCaptchaSolveMethod("auto") } }, label = { Text("Reverse JS (Auto)") }, shape = RoundedCornerShape(16.dp), enabled = !RJS_TEMPORARILY_DISABLED)
             }
             if (RJS_TEMPORARILY_DISABLED) {
-                Text("RJS РІСЂРµРјРµРЅРЅРѕ РѕС‚РєР»СЋС‡РµРЅ СЂР°Р·СЂР°Р±РѕС‚С‡РёРєРѕРј РїСЂРѕРµРєС‚Р°.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+                Text("RJS временно отключен разработчиком проекта.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
             }
             
             AnimatedVisibility(visible = captchaMode == "wv") {
                 Column(modifier = Modifier.padding(top = 16.dp)) {
-                    Text("Р РµР¶РёРј WebView", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text("Режим WebView", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = captchaMethod == "manual", onClick = { scope.launch { settingsStore.saveCaptchaSolveMethod("manual") } }, label = { Text("Р СѓС‡РЅРѕР№") }, shape = RoundedCornerShape(16.dp))
-                        FilterChip(selected = captchaMethod == "auto", onClick = { scope.launch { settingsStore.saveCaptchaSolveMethod("auto") } }, label = { Text("РђРІС‚Рѕ") }, shape = RoundedCornerShape(16.dp))
+                        FilterChip(selected = captchaMethod == "manual", onClick = { scope.launch { settingsStore.saveCaptchaSolveMethod("manual") } }, label = { Text("Ручной") }, shape = RoundedCornerShape(16.dp))
+                        FilterChip(selected = captchaMethod == "auto", onClick = { scope.launch { settingsStore.saveCaptchaSolveMethod("auto") } }, label = { Text("Авто") }, shape = RoundedCornerShape(16.dp))
                     }
                 }
             }
@@ -369,9 +369,9 @@ fun InterfaceSettings(onBack: () -> Unit) {
     val themePalette by settingsStore.themePalette.collectAsStateWithLifecycle("tyrn")
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("РРЅС‚РµСЂС„РµР№СЃ", onBack)
-        CategoryCard("РўРµРјР°", Icons.Default.Palette) {
-            val themes = listOf("system" to "РђРІС‚Рѕ", "light" to "РЎРІРµС‚Р»Р°СЏ", "dark" to "РўРµРјРЅР°СЏ", "amoled" to "Amoled")
+        SettingsHeader("Интерфейс", onBack)
+        CategoryCard("Тема", Icons.Default.Palette) {
+            val themes = listOf("system" to "Авто", "light" to "Светлая", "dark" to "Темная", "amoled" to "Amoled")
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 themes.forEachIndexed { i, (v, l) ->
                     SegmentedButton(
@@ -382,13 +382,13 @@ fun InterfaceSettings(onBack: () -> Unit) {
             }
             Spacer(Modifier.height(16.dp))
             SettingSwitchRow(
-                icon = Icons.Default.ColorLens, title = "Р”РёРЅР°РјРёС‡РµСЃРєРёРµ С†РІРµС‚Р°", subtitle = "Р¦РІРµС‚Р° РёР· РѕР±РѕРµРІ СЃРёСЃС‚РµРјС‹",
+                icon = Icons.Default.ColorLens, title = "Динамические цвета", subtitle = "Цвета из обоев системы",
                 checked = dynamicColor, enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             ) { scope.launch { settingsStore.saveDynamicColor(it) } }
             AnimatedVisibility(visible = !dynamicColor) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     HorizontalDivider(modifier = Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Text("Р СџР В°Р В»Р С‘РЎвЂљРЎР‚Р В°", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("РџР°Р»РёС‚СЂР°", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     ColorPalettePicker(
                         selected = themePalette,
                         onSelect = { palette -> scope.launch { settingsStore.saveThemePalette(palette) } }
@@ -403,8 +403,8 @@ fun InterfaceSettings(onBack: () -> Unit) {
 private fun ColorPalettePicker(selected: String, onSelect: (String) -> Unit) {
     val palettes = listOf(
         PaletteOption("tyrn", "Tyrn", Color(0xFF176B74)),
-        PaletteOption("forest", "Р›РµСЃ", Color(0xFF386A20)),
-        PaletteOption("violet", "Р¤РёРѕР»РµС‚", Color(0xFF7650A6))
+        PaletteOption("forest", "Лес", Color(0xFF386A20)),
+        PaletteOption("violet", "Фиолет", Color(0xFF7650A6))
     )
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -447,51 +447,51 @@ fun AboutScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val currentVersion = remember { "v${BuildConfig.VERSION_NAME.removePrefix("v")}" }
     
-    var updateStatus by remember { mutableStateOf("РџСЂРѕРІРµСЂРёС‚СЊ РѕР±РЅРѕРІР»РµРЅРёСЏ") }
+    var updateStatus by remember { mutableStateOf("Проверить обновления") }
     var isCheckingUpdates by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsHeader("Рћ РїСЂРёР»РѕР¶РµРЅРёРё", onBack)
+        SettingsHeader("О приложении", onBack)
         
         InfoHeroCard(currentVersion = currentVersion) {
             try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yzewe/TyrnGuard"))) } catch (_: Exception) {}
         }
         
-        CategoryCard("Р”РµР№СЃС‚РІРёСЏ", Icons.Default.Info) {
-            SettingClickRow(Icons.AutoMirrored.Filled.HelpOutline, "РЎРїСЂР°РІРєР°", "РљР°Рє СЂРµС€Р°С‚СЊ РєР°РїС‡Сѓ Рё РїРѕС‚РѕРєРё") { showHelpDialog = true }
+        CategoryCard("Действия", Icons.Default.Info) {
+            SettingClickRow(Icons.AutoMirrored.Filled.HelpOutline, "Справка", "Как решать капчу и потоки") { showHelpDialog = true }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             
-            SettingClickRow(Icons.Default.ContentCopy, "РЎРѕР±СЂР°С‚СЊ РѕС‚С‡С‘С‚", "РЎРєРѕРїРёСЂРѕРІР°С‚СЊ РґР°РЅРЅС‹Рµ РѕР± СѓСЃС‚СЂРѕР№СЃС‚РІРµ") {
+            SettingClickRow(Icons.Default.ContentCopy, "Собрать отчёт", "Скопировать данные об устройстве") {
                 val clipboard = context.getSystemService(ClipboardManager::class.java)
                 clipboard?.setPrimaryClip(ClipData.newPlainText("WDTT Report", buildSupportReport()))
-                Toast.makeText(context, "РћС‚С‡С‘С‚ СЃС„РѕСЂРјРёСЂРѕРІР°РЅ Рё СЃРєРѕРїРёСЂРѕРІР°РЅ", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Отчёт сформирован и скопирован", Toast.LENGTH_SHORT).show()
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             
-            SettingClickRow(if (isCheckingUpdates) Icons.Default.HourglassEmpty else Icons.Default.Update, "РџСЂРѕРІРµСЂРёС‚СЊ РѕР±РЅРѕРІР»РµРЅРёСЏ", updateStatus) {
+            SettingClickRow(if (isCheckingUpdates) Icons.Default.HourglassEmpty else Icons.Default.Update, "Проверить обновления", updateStatus) {
                 if (isCheckingUpdates) return@SettingClickRow
                 isCheckingUpdates = true
-                updateStatus = "РџСЂРѕРІРµСЂСЏРµРј GitHub releases..."
+                updateStatus = "Проверяем GitHub releases..."
                 scope.launch {
                     val release = fetchLatestReleaseInfo(currentVersion)
                     val latest = release?.versionTag
                     isCheckingUpdates = false
                     updateStatus = when {
-                        latest == null -> "РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕРІРµСЂРёС‚СЊ"
-                        !isNewerVersion(currentVersion, latest) -> "РЈ РІР°СЃ РїРѕСЃР»РµРґРЅСЏСЏ РІРµСЂСЃРёСЏ: $latest"
-                        else -> "Р”РѕСЃС‚СѓРїРЅР° РЅРѕРІР°СЏ РІРµСЂСЃРёСЏ $latest"
+                        latest == null -> "Не удалось проверить"
+                        !isNewerVersion(currentVersion, latest) -> "У вас последняя версия: $latest"
+                        else -> "Доступна новая версия $latest"
                     }
                 }
             }
         }
 
-        CategoryCard("Рћ РїСЂРѕРµРєС‚Рµ", Icons.Default.Code) {
-            SettingClickRow(Icons.Default.Person, "РђРІС‚РѕСЂ Android-РІРµСЂСЃРёРё", "GitHub РїСЂРѕС„РёР»СЊ amurcanov") {
+        CategoryCard("О проекте", Icons.Default.Code) {
+            SettingClickRow(Icons.Default.Person, "Автор Android-версии", "GitHub профиль amurcanov") {
                 try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/amurcanov"))) } catch (_: Exception) {}
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            SettingClickRow(Icons.Default.Code, "Р¤РѕСЂРє TyrnGuard (yzewe)", "Р РµРґРёР·Р°Р№РЅ Рё РјРѕРґРёС„РёРєР°С†РёРё") {
+            SettingClickRow(Icons.Default.Code, "Форк TyrnGuard (yzewe)", "Редизайн и модификации") {
                 try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yzewe/TyrnGuard"))) } catch (_: Exception) {}
             }
         }
@@ -541,13 +541,13 @@ private fun InfoHeroCard(currentVersion: String, onSupportClick: () -> Unit) {
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("TyrnGuard VPN", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, fontSize = 30.sp, lineHeight = 34.sp), color = colors.onSurface)
-                    Text("РњРѕРґРёС„РёС†РёСЂРѕРІР°РЅРЅС‹Р№ Android-РєР»РёРµРЅС‚ РґР»СЏ TURN/VK С‚СѓРЅРЅРµР»СЏ СЃ РёР·РјРµРЅРµРЅРЅС‹Рј СЃРѕРІСЂРµРјРµРЅРЅС‹Рј РґРёР·Р°Р№РЅРѕРј.", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, lineHeight = 21.sp)
+                    Text("Модифицированный Android-клиент для TURN/VK туннеля с измененным современным дизайном.", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, lineHeight = 21.sp)
                 }
 
                 Button(onClick = onSupportClick, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth().height(54.dp)) {
                     Icon(Icons.Default.Favorite, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("РџРѕРґРґРµСЂР¶Р°С‚СЊ РїСЂРѕРµРєС‚ (GitHub)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Поддержать проект (GitHub)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
         }
@@ -570,13 +570,13 @@ private fun buildSupportReport(): String {
     val buildType = Build.TYPE.orEmpty().ifBlank { "unknown" }
 
     return buildString {
-        appendLine("Р’РµСЂСЃРёСЏ РїСЂРёР»РѕР¶РµРЅРёСЏ: ${BuildConfig.VERSION_NAME}")
-        appendLine("РђРЅРґСЂРѕРёРґ: $androidVersion (SDK $sdkInt)")
-        appendLine("РЈСЃС‚СЂРѕР№СЃС‚РІРѕ: $manufacturer / $brand / $model")
-        appendLine("РљРѕРґ СѓСЃС‚СЂРѕР№СЃС‚РІР°: $device")
-        appendLine("РџСЂРѕРґСѓРєС‚: $product")
+        appendLine("Версия приложения: ${BuildConfig.VERSION_NAME}")
+        appendLine("Андроид: $androidVersion (SDK $sdkInt)")
+        appendLine("Устройство: $manufacturer / $brand / $model")
+        appendLine("Код устройства: $device")
+        appendLine("Продукт: $product")
         appendLine("ABI: $primaryAbi")
-        appendLine("Р’СЃРµ ABI: $supportedAbis")
+        appendLine("Все ABI: $supportedAbis")
         appendLine("Hardware: $hardware")
         appendLine("Board: $board")
         appendLine("Build ID: $buildId")
@@ -586,7 +586,7 @@ private fun buildSupportReport(): String {
 
 suspend fun addServerToStoreDirect(context: Context, settingsStore: SettingsStore, json: JSONObject) {
     val ip = json.optString("ip", "").trim()
-    val name = json.optString("name", "РРјРїРѕСЂС‚РёСЂРѕРІР°РЅРЅС‹Р№ СЃРµСЂРІРµСЂ").trim()
+    val name = json.optString("name", "Импортированный сервер").trim()
     val pass = json.optString("password", "").trim()
     if (ip.isBlank()) return
 
@@ -598,7 +598,7 @@ suspend fun addServerToStoreDirect(context: Context, settingsStore: SettingsStor
     if (existsIdx != -1) currentArray.put(existsIdx, newObj) else currentArray.put(newObj)
     settingsStore.saveServersList(currentArray.toString())
 
-    withContext(Dispatchers.Main) { Toast.makeText(context, "РЎРµСЂРІРµСЂ '$name' ${if (existsIdx != -1) "РѕР±РЅРѕРІР»РµРЅ" else "РґРѕР±Р°РІР»РµРЅ"}", Toast.LENGTH_SHORT).show() }
+    withContext(Dispatchers.Main) { Toast.makeText(context, "Сервер '$name' ${if (existsIdx != -1) "РѕР±РЅРѕРІР»РµРЅ" else "РґРѕР±Р°РІР»РµРЅ"}", Toast.LENGTH_SHORT).show() }
 }
 
 @Composable
@@ -606,11 +606,11 @@ fun ImportantInfoDialog(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Column(modifier = Modifier.padding(28.dp).verticalScroll(rememberScrollState())) {
-                Text("РЎРїСЂР°РІРєР°", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("Справка", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(20.dp))
-                Text("вЂў RJS-РљР°РїС‡Р° вЂ” Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРµ СЂРµС€РµРЅРёРµ (СЌРєСЃРїРµСЂРёРјРµРЅС‚Р°Р»СЊРЅРѕ). Р’СЂРµРјРµРЅРЅРѕ РѕС‚РєР»СЋС‡РµРЅРѕ СЂР°Р·СЂР°Р±РѕС‚С‡РёРєРѕРј.\n\nвЂў РЎРІСЏР·СЊ РїРѕС‚РѕРєРѕРІ вЂ” Р РµРєРѕРјРµРЅРґСѓСЋ РІС‹Р±РёСЂР°С‚СЊ 12-36 РїРѕС‚РѕРєР° РґР»СЏ РјРµРЅСЊС€РµРіРѕ РєРѕР»РёС‡РµСЃС‚РІР° РєР°РїС‡.\n\nвЂў РљР°Рє СЂРµС€Р°С‚СЊ РєР°РїС‡Сѓ вЂ” РќСѓР¶РЅРѕ РїСЂРѕСЃС‚Рѕ РїРѕС‚СЏРЅСѓС‚СЊ СЃР»Р°Р№РґРµСЂ РІРїСЂР°РІРѕ С‚Р°Рє, С‡С‚РѕР±С‹ РІСЃРµ СЌР»РµРјРµРЅС‚С‹ РёРґРµР°Р»СЊРЅРѕ СЃРѕС€Р»РёСЃСЊ РІ РїР°Р·Р»Рµ.", style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp, fontSize = 16.sp)
+                Text("• RJS-Капча — автоматическое решение (экспериментально). Временно отключено разработчиком.\n\n• Связь потоков — Рекомендую выбирать 12-36 потока для меньшего количества капч.\n\n• Как решать капчу — Нужно просто потянуть слайдер вправо так, чтобы все элементы идеально сошлись в пазле.", style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp, fontSize = 16.sp)
                 Spacer(Modifier.height(32.dp))
-                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(24.dp)) { Text("Р—Р°РєСЂС‹С‚СЊ", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(24.dp)) { Text("Закрыть", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             }
         }
     }
