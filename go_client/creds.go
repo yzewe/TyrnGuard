@@ -223,10 +223,8 @@ func fetchVkCredsSerialized(ctx context.Context, link string, streamID int) (str
 	if !globalLastVkFetchTime.IsZero() && elapsed < minInterval {
 		wait := minInterval - elapsed
 		log.Printf("[STREAM %d] [VK Auth] Throttling: waiting %v to prevent rate limit...", streamID, wait.Truncate(time.Millisecond))
-		select {
-		case <-ctx.Done():
+		if !sleepContext(ctx, wait) {
 			return "", "", nil, ctx.Err()
-		case <-time.After(wait):
 		}
 	}
 
@@ -272,10 +270,8 @@ func fetchVkCreds(ctx context.Context, link string, streamID int) (string, strin
 		if attempt%len(vkCredentialsList) == len(vkCredentialsList)-1 && attempt+1 < vkCredentialAttemptLimit {
 			wait := time.Duration(900+rand.Intn(900)) * time.Millisecond
 			log.Printf("[STREAM %d] [VK Auth] Both VK credentials failed, retrying stable pair after %v...", streamID, wait)
-			select {
-			case <-ctx.Done():
+			if !sleepContext(ctx, wait) {
 				return "", "", nil, ctx.Err()
-			case <-time.After(wait):
 			}
 		}
 	}

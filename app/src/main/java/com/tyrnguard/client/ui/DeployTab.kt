@@ -577,6 +577,7 @@ private fun CategoryCard(title: String, icon: ImageVector, content: @Composable 
     Surface(
         shape = RoundedCornerShape(26.dp),
         color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f)),
         tonalElevation = 2.dp,
         shadowElevation = 3.dp,

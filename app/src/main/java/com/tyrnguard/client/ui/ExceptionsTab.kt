@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -20,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -115,8 +117,21 @@ fun ExceptionsTab() {
             Switch(checked = showSystemApps, onCheckedChange = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); showSystemApps = it })
         }
 
-        Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)),
+            shadowElevation = 2.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.surfaceContainer)))
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                     Text("Режим работы", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(if (isWhitelist) "Белый список: Отмеченные пускаются в VPN" else "Черный список: Отмеченные исключаются", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -180,21 +195,24 @@ fun AppRow(app: AppItem, isSelected: Boolean, modifier: Modifier = Modifier, onT
     // Асинхронная загрузка иконки (экономит память и не тормозит список)
     LaunchedEffect(app.packageName) {
         withContext(Dispatchers.IO) {
-            try { iconBitmap = context.packageManager.getApplicationIcon(app.packageName).toBitmap().asImageBitmap() } catch (_: Exception) {}
+            try { iconBitmap = context.packageManager.getApplicationIcon(app.packageName).toBitmap(width = 96, height = 96).asImageBitmap() } catch (_: Exception) {}
         }
     }
 
-    val animatedColor by animateColorAsState(targetValue = if (isSelected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), animationSpec = spring(stiffness = Spring.StiffnessLow), label = "")
+    val animatedColor by animateColorAsState(targetValue = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, animationSpec = spring(stiffness = Spring.StiffnessLow), label = "")
 
     Surface(
         modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).toggleable(value = isSelected, onValueChange = { onToggle() }),
-        shape = RoundedCornerShape(20.dp), color = animatedColor
+        shape = RoundedCornerShape(20.dp),
+        color = animatedColor,
+        contentColor = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isSelected) 0.36f else 0.18f))
     ) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             if (iconBitmap != null) {
                 Image(bitmap = iconBitmap!!, contentDescription = null, modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)))
             } else {
-                Box(modifier = Modifier.size(44.dp).background(Color.Gray, RoundedCornerShape(12.dp)))
+                Box(modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(12.dp)))
             }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {

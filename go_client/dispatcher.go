@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	returnChBuf = 384
+	returnChBuf  = 384
+	packetBufCap = 2048
 
 	// chunkSize — количество последовательных пакетов, отправляемых в один worker
 	// перед переключением на следующий.
@@ -29,6 +30,29 @@ const (
 	// равномерно по-прежнему (каждый получает 1/N от общего трафика за время).
 	chunkSize = 8
 )
+
+var packetPool = sync.Pool{
+	New: func() any {
+		return make([]byte, packetBufCap)
+	},
+}
+
+func getPacketBuffer(n int) []byte {
+	if n > packetBufCap {
+		return make([]byte, n)
+	}
+	buf := packetPool.Get().([]byte)
+	if cap(buf) < n {
+		return make([]byte, n)
+	}
+	return buf[:n]
+}
+
+func releasePacketBuffer(buf []byte) {
+	if cap(buf) == packetBufCap {
+		packetPool.Put(buf[:packetBufCap])
+	}
+}
 
 type WorkerSlot struct {
 	ID     int
@@ -125,7 +149,7 @@ func (d *Dispatcher) readLoop() {
 		d.clientAddr.Store(&addr)
 		atomic.AddInt64(&d.stats.TotalBytesUp, int64(n))
 
-		pkt := make([]byte, n)
+		pkt := getPacketBuffer(n)
 		copy(pkt, buf[:n])
 
 		d.mu.Lock()
@@ -167,6 +191,7 @@ func (d *Dispatcher) readLoop() {
 
 		if !sent {
 			// Все workers перегружены — сдвигаем указатель, пакет дропается
+			releasePacketBuffer(pkt)
 			d.rrIndex = (idx + 1) % nw
 			d.rrCount = 0
 		}
@@ -184,15 +209,19 @@ func (d *Dispatcher) writeLoop() {
 		case pkt := <-d.ReturnCh:
 			addrPtr := d.clientAddr.Load()
 			if addrPtr == nil {
+				releasePacketBuffer(pkt)
 				continue
 			}
 			addr := *addrPtr
 			if _, err := d.localConn.WriteTo(pkt, addr); err != nil {
+				releasePacketBuffer(pkt)
 				if d.ctx.Err() != nil {
 					return
 				}
+				continue
 			}
 			atomic.AddInt64(&d.stats.TotalBytesDown, int64(len(pkt)))
+			releasePacketBuffer(pkt)
 		}
 	}
 }

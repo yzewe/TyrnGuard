@@ -1,5 +1,8 @@
 /.gitattributes text eol=lf
 *.kt text eol=lf
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
 *.sh text eol=lf
 gradlew text eol=lf
 app/src/main/assets/deploy.sh text eol=lf

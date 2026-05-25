@@ -31,3 +31,5 @@ require (
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 )
+
+replace github.com/wlynxg/anet => ./third_party/anet

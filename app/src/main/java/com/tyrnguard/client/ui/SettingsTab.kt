@@ -87,10 +87,24 @@ enum class WidgetType(val title: String, val icon: ImageVector, val isWide: Bool
     SESSION("Сессия", Icons.Default.Timer),
     WORKERS("Воркеры", Icons.Default.Hub),
     SPEED("Скорость", Icons.Default.Download),
+    TRAFFIC("Трафик", Icons.Default.DataUsage),
+    HEALTH("Статус", Icons.Default.HealthAndSafety),
     GRAPH("График сети", Icons.Default.QueryStats, isWide = true)
 }
 
 private const val RJS_TEMPORARILY_DISABLED = true
+
+private fun formatRate(bytesPerSecond: Long): String {
+    if (bytesPerSecond <= 0L) return "0 KB/s"
+    val kb = bytesPerSecond / 1024f
+    return if (kb >= 1024f) String.format("%.1f MB/s", kb / 1024f) else String.format("%.0f KB/s", kb)
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 MB"
+    val mb = bytes / (1024f * 1024f)
+    return if (mb >= 1024f) String.format("%.1f GB", mb / 1024f) else String.format("%.1f MB", mb)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,6 +119,7 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
     val cooldownSeconds by TunnelManager.cooldownSeconds.collectAsStateWithLifecycle()
     val currentPing by TunnelManager.currentPingMs.collectAsStateWithLifecycle()
     val currentSpeed by TunnelManager.currentSpeedBytes.collectAsStateWithLifecycle()
+    val totalTraffic by TunnelManager.totalTrafficBytes.collectAsStateWithLifecycle()
     val activeWorkers by TunnelManager.activeWorkers.collectAsStateWithLifecycle()
 
     val peer by settingsStore.peer.collectAsStateWithLifecycle("")
@@ -410,9 +425,13 @@ fun SettingsTab(snackbarHostState: SnackbarHostState) {
                                     WidgetType.PING -> if (tunnelRunning) { if (currentPing > 0) "${currentPing} ms" else "..." } else "--"
                                     WidgetType.SESSION -> if (tunnelRunning) timerString else "00:00"
                                     WidgetType.WORKERS -> "$activeWorkers"
-                                    WidgetType.SPEED -> {
-                                        val speedKb = currentSpeed / 1024f
-                                        if (tunnelRunning) if (speedKb > 1024) String.format("%.1f MB/s", speedKb / 1024f) else String.format("%.0f KB/s", speedKb) else "0 KB/s"
+                                    WidgetType.SPEED -> if (tunnelRunning) formatRate(currentSpeed) else "0 KB/s"
+                                    WidgetType.TRAFFIC -> formatBytes(totalTraffic)
+                                    WidgetType.HEALTH -> when {
+                                        tunnelRunning && activeWorkers > 0 -> "OK"
+                                        tunnelRunning -> "Warmup"
+                                        peer.isBlank() || hashes.isBlank() -> "Setup"
+                                        else -> "Idle"
                                     }
                                     else -> ""
                                 },
@@ -699,6 +718,7 @@ fun SpeedGraphCard(isRunning: Boolean, currentSpeedBytes: Long, modifier: Modifi
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(26.dp),
         color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f)),
         shadowElevation = 2.dp
     ) {
@@ -744,6 +764,7 @@ fun DashboardCard(title: String, icon: ImageVector, modifier: Modifier = Modifie
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)),
         shadowElevation = 2.dp
     ) {

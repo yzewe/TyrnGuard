@@ -233,9 +233,9 @@ fun FloatingToolbar(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
-                                PaletteCircle("indigo", 0xFF5B588D, currentPalette, onPaletteChange)
-                                PaletteCircle("forest", 0xFF5F5D68, currentPalette, onPaletteChange)
-                                PaletteCircle("espresso", 0xFF6D4C41, currentPalette, onPaletteChange)
+                                PaletteCircle("tyrn", 0xFF176B74, currentPalette, onPaletteChange)
+                                PaletteCircle("forest", 0xFF386A20, currentPalette, onPaletteChange)
+                                PaletteCircle("violet", 0xFF7650A6, currentPalette, onPaletteChange)
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                         }

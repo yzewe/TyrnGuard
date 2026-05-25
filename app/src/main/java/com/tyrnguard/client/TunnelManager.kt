@@ -57,6 +57,7 @@ object TunnelManager {
     val activeWorkers = MutableStateFlow(0)
     val currentPingMs = MutableStateFlow(0L)
     val currentSpeedBytes = MutableStateFlow(0L)
+    val totalTrafficBytes = MutableStateFlow(0L)
     
     val cooldownSeconds = MutableStateFlow(0)
     private var cooldownJob: Job? = null
@@ -127,6 +128,7 @@ object TunnelManager {
             lastTrafficAtMs = 0L
             currentPingMs.value = 0L
             currentSpeedBytes.value = 0L
+            totalTrafficBytes.value = 0L
             activeHashIndex = 0
             currentParams = params
             lastContext = appContext
@@ -382,6 +384,7 @@ object TunnelManager {
 
                         Regex("(\\d+(?:[.,]\\d+)?)\\s*(?:МБ|MB)", RegexOption.IGNORE_CASE).find(msg)?.let { trafficMatch ->
                             val totalBytes = ((trafficMatch.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 0.0) * 1024.0 * 1024.0).toLong()
+                            totalTrafficBytes.value = totalBytes
                             if (lastTrafficAtMs > 0L && now > lastTrafficAtMs && totalBytes >= lastTrafficBytes) {
                                 currentSpeedBytes.value = ((totalBytes - lastTrafficBytes) * 1000L) / (now - lastTrafficAtMs)
                             }
@@ -822,6 +825,7 @@ object TunnelManager {
         activeWorkers.value = 0
         currentPingMs.value = 0L
         currentSpeedBytes.value = 0L
+        totalTrafficBytes.value = 0L
     }
 
     fun startCooldown(seconds: Int) {

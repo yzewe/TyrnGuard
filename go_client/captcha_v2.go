@@ -441,10 +441,8 @@ func (s *captchaV2Session) solveCheckboxCaptcha(
 		return "", fmt.Errorf("captcha componentDone failed: %w", err)
 	}
 
-	select {
-	case <-s.ctx.Done():
+	if !sleepContext(s.ctx, time.Duration(400+mathrand.Intn(250))*time.Millisecond) {
 		return "", s.ctx.Err()
-	case <-time.After(time.Duration(400+mathrand.Intn(250)) * time.Millisecond):
 	}
 
 	check, err := s.performCaptchaCheck(sessionToken, browserFP, hash, "{}", "[]", debugInfo)

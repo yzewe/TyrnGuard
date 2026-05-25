@@ -24,6 +24,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -213,7 +215,7 @@ fun NetworkSettings(onBack: () -> Unit) {
             OutlinedTextField(value = listenInput, onValueChange = { listenInput = it.filter { c -> c.isDigit() }.take(5); savePorts() }, label = { Text("Локальный порт VPN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), singleLine = true)
         }
 
-        CategoryCard("Расширенные", Icons.Default.CompareArrows) {
+        CategoryCard("Расширенные", Icons.AutoMirrored.Filled.CompareArrows) {
             Text("SNI (Опционально)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             OutlinedTextField(
                 value = sniInput,
@@ -392,7 +394,8 @@ fun InterfaceSettings(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle("system")
-    val dynamicColor by settingsStore.useDynamicColor.collectAsStateWithLifecycle(true)
+    val dynamicColor by settingsStore.useDynamicColor.collectAsStateWithLifecycle(false)
+    val themePalette by settingsStore.themePalette.collectAsStateWithLifecycle("tyrn")
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SettingsHeader("Интерфейс", onBack)
@@ -411,6 +414,21 @@ fun InterfaceSettings(onBack: () -> Unit) {
                 icon = Icons.Default.ColorLens, title = "Динамические цвета", subtitle = "Цвета из обоев системы",
                 checked = dynamicColor, enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             ) { scope.launch { settingsStore.saveDynamicColor(it) } }
+            AnimatedVisibility(visible = !dynamicColor) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    HorizontalDivider(modifier = Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Text("РџР°Р»РёС‚СЂР°", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        listOf("tyrn" to "Tyrn", "forest" to "Forest", "violet" to "Violet").forEachIndexed { i, (v, l) ->
+                            SegmentedButton(
+                                selected = themePalette == v,
+                                shape = SegmentedButtonDefaults.itemShape(index = i, count = 3),
+                                onClick = { scope.launch { settingsStore.saveThemePalette(v) } }
+                            ) { Text(l, fontSize = 11.sp, maxLines = 1) }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -433,7 +451,7 @@ fun AboutScreen(onBack: () -> Unit) {
         }
         
         CategoryCard("Действия", Icons.Default.Info) {
-            SettingClickRow(Icons.Default.HelpOutline, "Справка", "Как решать капчу и потоки") { showHelpDialog = true }
+            SettingClickRow(Icons.AutoMirrored.Filled.HelpOutline, "Справка", "Как решать капчу и потоки") { showHelpDialog = true }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             
             SettingClickRow(Icons.Default.ContentCopy, "Собрать отчёт", "Скопировать данные об устройстве") {
@@ -599,6 +617,7 @@ fun MenuCategoryItem(title: String, subtitle: String, icon: ImageVector, onClick
         onClick = onClick,
         shape = RoundedCornerShape(26.dp),
         color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
         shadowElevation = 2.dp,
         modifier = Modifier.fillMaxWidth()
@@ -633,6 +652,7 @@ private fun CategoryCard(title: String, icon: ImageVector, content: @Composable 
     Surface(
         shape = RoundedCornerShape(26.dp),
         color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f)),
         tonalElevation = 2.dp,
         shadowElevation = 3.dp,

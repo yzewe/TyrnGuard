@@ -23,13 +23,26 @@ const (
 	workerSendBuf      = 128
 	sessionReadTimeout = 30 * time.Minute // Increased from 60s to 30min
 	readBufSize        = 1600
-	socketBufSize      = 625 * 1024
+	socketBufSize      = 384 * 1024
 	keepaliveByte      = 0xFF // DTLS-level keepalive marker
 	keepaliveInterval  = 15 * time.Second
 )
 
 // Handshake semaphore: limit to 3 concurrent DTLS handshakes
 var handshakeSem = make(chan struct{}, 3)
+
+var (
+	sessionCertOnce sync.Once
+	sessionCert     tls.Certificate
+	sessionCertErr  error
+)
+
+func getSessionCertificate() (tls.Certificate, error) {
+	sessionCertOnce.Do(func() {
+		sessionCert, sessionCertErr = selfsign.GenerateSelfSigned()
+	})
+	return sessionCert, sessionCertErr
+}
 
 // NullLoggerFactory подавляет логи pion
 type NullLoggerFactory struct{}
@@ -256,7 +269,7 @@ func RunSession(
 	}()
 
 	// DTLS с поддержкой Connection ID (без SNI)
-	cert, err := selfsign.GenerateSelfSigned()
+	cert, err := getSessionCertificate()
 	if err != nil {
 		return false, fmt.Errorf("генерация сертификата: %w", err)
 	}
@@ -378,7 +391,9 @@ func RunSession(
 					return
 				}
 				_ = dtlsConn.SetWriteDeadline(time.Now().Add(sessionReadTimeout))
-				if _, writeErr := dtlsConn.Write(pkt); writeErr != nil {
+				_, writeErr := dtlsConn.Write(pkt)
+				releasePacketBuffer(pkt)
+				if writeErr != nil {
 					log.Printf("[ВОРКЕР #%d] Ошибка Writer: %v", sessionID, writeErr)
 					return
 				}
@@ -410,11 +425,12 @@ func RunSession(
 				continue
 			}
 
-			pkt := make([]byte, n)
+			pkt := getPacketBuffer(n)
 			copy(pkt, b[:n])
 			select {
 			case d.ReturnCh <- pkt:
 			case <-sessCtx.Done():
+				releasePacketBuffer(pkt)
 				return
 			}
 		}

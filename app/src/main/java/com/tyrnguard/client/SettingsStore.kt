@@ -152,7 +152,7 @@ class SettingsStore(context: Context) {
     val themeMode: Flow<String> = dataStore.data.map { it[THEME_MODE] ?: "system" }
     val isDynamicColor: Flow<Boolean> = dataStore.data.map { it[IS_DYNAMIC_COLOR] ?: false }
     val useDynamicColor: Flow<Boolean> = isDynamicColor
-    val themePalette: Flow<String> = dataStore.data.map { it[THEME_PALETTE] ?: "indigo" }
+    val themePalette: Flow<String> = dataStore.data.map { it[THEME_PALETTE] ?: "tyrn" }
     val savedServersJson: Flow<String> = dataStore.data.map { it[SAVED_SERVERS_JSON] ?: "[]" }
     val customMtu: Flow<Int> = dataStore.data.map { it[CUSTOM_MTU] ?: 0 }
     val customDns: Flow<String> = dataStore.data.map { it[CUSTOM_DNS] ?: "default" }

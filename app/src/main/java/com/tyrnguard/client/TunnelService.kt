@@ -175,6 +175,7 @@ class TunnelService : Service() {
                 if (wasEmpty) {
                     if (isTunnelPaused) {
                         isTunnelPaused = false
+                        acquireWifiLock()
                         Log.d("TunnelService", "Сеть появилась, возобновляем туннель")
                         TunnelManager.resume()
                         updateNotification("Подключение...")
@@ -191,6 +192,7 @@ class TunnelService : Service() {
                 activeNetworks.remove(network)
                 if (activeNetworks.isEmpty() && TunnelManager.running.value && !isTunnelPaused) {
                     isTunnelPaused = true
+                    releaseWifiLock()
                     Log.d("TunnelService", "Сеть потеряна, приостанавливаем туннель")
                     TunnelManager.pause()
                     updateNotification("Ожидание сети (Фоновый сон)")
@@ -242,6 +244,7 @@ class TunnelService : Service() {
 
     @Suppress("DEPRECATION")
     private fun acquireWifiLock() {
+        if (!isActiveNetworkWifi()) return
         if (wifiLock?.isHeld == true) return
         val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         
@@ -257,6 +260,13 @@ class TunnelService : Service() {
             setReferenceCounted(false)
             acquire() 
         }
+    }
+
+    private fun isActiveNetworkWifi(): Boolean {
+        val cm = connectivityManager ?: getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return false
+        val capabilities = cm.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
     }
 
     private fun releaseWakeLock() {
@@ -286,7 +296,7 @@ class TunnelService : Service() {
                 if (!isTunnelPaused) {
                     updateNotification(buildTunnelNotificationText())
                 }
-                delay(2000)
+                delay(3000)
             }
         }
     }

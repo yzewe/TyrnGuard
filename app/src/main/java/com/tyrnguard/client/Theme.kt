@@ -37,7 +37,7 @@ val WDTTTypography = Typography(
 )
 
 // ═══ Дефолт: Глубокий Синий (Indigo / Blue) ═══
-private val LightColorScheme = lightColorScheme(
+private val TyrnLightColorScheme = lightColorScheme(
     primary = Color(0xFF176B74),
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFBEEBF0),
@@ -51,7 +51,9 @@ private val LightColorScheme = lightColorScheme(
     tertiaryContainer = Color(0xFFFFD7F3),
     onTertiaryContainer = Color(0xFF2C122A),
     background = Color(0xFFF6FBF8),
+    onBackground = Color(0xFF171D1A),
     surface = Color(0xFFF6FBF8),
+    onSurface = Color(0xFF171D1A),
     surfaceVariant = Color(0xFFDCE5DF),
     onSurfaceVariant = Color(0xFF404943),
     surfaceContainerLowest = Color(0xFFFFFFFF),
@@ -59,11 +61,18 @@ private val LightColorScheme = lightColorScheme(
     surfaceContainer = Color(0xFFEAF2EC),
     surfaceContainerHigh = Color(0xFFE4ECE6),
     surfaceContainerHighest = Color(0xFFDDE7E1),
+    outline = Color(0xFF707973),
     outlineVariant = Color(0xFFC0CAC3),
     error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+    inverseSurface = Color(0xFF2C322F),
+    inverseOnSurface = Color(0xFFEDF3EE),
+    inversePrimary = Color(0xFF82D5DC),
 )
 
-private val DarkColorScheme = darkColorScheme(
+private val TyrnDarkColorScheme = darkColorScheme(
     primary = Color(0xFF82D5DC),
     onPrimary = Color(0xFF00363B),
     primaryContainer = Color(0xFF0B4F55),
@@ -77,7 +86,9 @@ private val DarkColorScheme = darkColorScheme(
     tertiaryContainer = Color(0xFF5B3C56),
     onTertiaryContainer = Color(0xFFFFD7F3),
     background = Color(0xFF0E1512),
+    onBackground = Color(0xFFDDE4DF),
     surface = Color(0xFF0E1512),
+    onSurface = Color(0xFFDDE4DF),
     surfaceVariant = Color(0xFF404943),
     onSurfaceVariant = Color(0xFFC0CAC3),
     surfaceContainerLowest = Color(0xFF090F0D),
@@ -85,9 +96,94 @@ private val DarkColorScheme = darkColorScheme(
     surfaceContainer = Color(0xFF18201C),
     surfaceContainerHigh = Color(0xFF222A26),
     surfaceContainerHighest = Color(0xFF2D3531),
+    outline = Color(0xFF8A938D),
     outlineVariant = Color(0xFF404943),
     error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    inverseSurface = Color(0xFFDDE4DF),
+    inverseOnSurface = Color(0xFF2C322F),
+    inversePrimary = Color(0xFF176B74),
 )
+
+private val ForestLightColorScheme = TyrnLightColorScheme.copy(
+    primary = Color(0xFF386A20),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFB9F397),
+    onPrimaryContainer = Color(0xFF062100),
+    secondary = Color(0xFF52634B),
+    secondaryContainer = Color(0xFFD5E8C9),
+    tertiary = Color(0xFF386663),
+    tertiaryContainer = Color(0xFFBCECE7),
+    background = Color(0xFFF8FBF1),
+    surface = Color(0xFFF8FBF1),
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color(0xFFF2F6EA),
+    surfaceContainer = Color(0xFFECF0E4),
+    surfaceContainerHigh = Color(0xFFE6EBDD),
+    surfaceContainerHighest = Color(0xFFE0E5D7),
+)
+
+private val ForestDarkColorScheme = TyrnDarkColorScheme.copy(
+    primary = Color(0xFF9ED67D),
+    onPrimary = Color(0xFF0C3900),
+    primaryContainer = Color(0xFF205107),
+    onPrimaryContainer = Color(0xFFB9F397),
+    secondary = Color(0xFFB9CCAF),
+    secondaryContainer = Color(0xFF3B4B34),
+    tertiary = Color(0xFFA0D0CC),
+    tertiaryContainer = Color(0xFF1F4E4B),
+    background = Color(0xFF11150F),
+    surface = Color(0xFF11150F),
+    surfaceContainerLowest = Color(0xFF0B0F09),
+    surfaceContainerLow = Color(0xFF171B14),
+    surfaceContainer = Color(0xFF1B2018),
+    surfaceContainerHigh = Color(0xFF252A21),
+    surfaceContainerHighest = Color(0xFF30352B),
+)
+
+private val VioletLightColorScheme = TyrnLightColorScheme.copy(
+    primary = Color(0xFF7650A6),
+    primaryContainer = Color(0xFFECDCFF),
+    onPrimaryContainer = Color(0xFF290056),
+    secondary = Color(0xFF665A6F),
+    secondaryContainer = Color(0xFFEEDDF7),
+    tertiary = Color(0xFF805158),
+    tertiaryContainer = Color(0xFFFFD9DE),
+    background = Color(0xFFFFF7FD),
+    surface = Color(0xFFFFF7FD),
+    surfaceContainerLow = Color(0xFFF9F0F8),
+    surfaceContainer = Color(0xFFF3EAF2),
+    surfaceContainerHigh = Color(0xFFEDE4EC),
+    surfaceContainerHighest = Color(0xFFE8DFE6),
+)
+
+private val VioletDarkColorScheme = TyrnDarkColorScheme.copy(
+    primary = Color(0xFFD7BAFF),
+    onPrimary = Color(0xFF461C74),
+    primaryContainer = Color(0xFF5D378C),
+    onPrimaryContainer = Color(0xFFECDCFF),
+    secondary = Color(0xFFD2C1DA),
+    secondaryContainer = Color(0xFF4D4356),
+    tertiary = Color(0xFFF3B7C0),
+    tertiaryContainer = Color(0xFF663A41),
+    background = Color(0xFF171219),
+    surface = Color(0xFF171219),
+    surfaceContainerLowest = Color(0xFF110D13),
+    surfaceContainerLow = Color(0xFF1F1A22),
+    surfaceContainer = Color(0xFF241E27),
+    surfaceContainerHigh = Color(0xFF2E2831),
+    surfaceContainerHighest = Color(0xFF39323C),
+)
+
+private fun fixedColorScheme(palette: String, darkTheme: Boolean): ColorScheme {
+    return when (palette) {
+        "forest" -> if (darkTheme) ForestDarkColorScheme else ForestLightColorScheme
+        "violet" -> if (darkTheme) VioletDarkColorScheme else VioletLightColorScheme
+        else -> if (darkTheme) TyrnDarkColorScheme else TyrnLightColorScheme
+    }
+}
 
 // ═══ Кастомные цвета ═══
 object WDTTColors {
@@ -108,7 +204,8 @@ object WDTTColors {
 @Composable
 fun WDTTTheme(
     themeMode: String = "system",
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
+    palette: String = "tyrn",
     content: @Composable () -> Unit
 ) {
     val darkTheme = when (themeMode) {
@@ -123,8 +220,7 @@ fun WDTTTheme(
     // 1. Получаем базовую палитру
     var colorScheme = when {
         dynamicColor && supportsDynamic -> if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        else -> fixedColorScheme(palette, darkTheme)
     }
 
     // 2. AMOLED режим
@@ -132,7 +228,15 @@ fun WDTTTheme(
         colorScheme = colorScheme.copy(
             background = Color(0xFF000000),
             surface = Color(0xFF000000),
-            surfaceVariant = Color(0xFF121212)
+            surfaceVariant = Color(0xFF121212),
+            surfaceContainerLowest = Color(0xFF000000),
+            surfaceContainerLow = Color(0xFF050505),
+            surfaceContainer = Color(0xFF090909),
+            surfaceContainerHigh = Color(0xFF101010),
+            surfaceContainerHighest = Color(0xFF171717),
+            onBackground = Color(0xFFE7E7E7),
+            onSurface = Color(0xFFE7E7E7),
+            onSurfaceVariant = Color(0xFFC9C9C9)
         )
     }
 

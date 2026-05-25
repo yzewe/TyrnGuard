@@ -62,6 +62,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.tyrnguard.client.ui.DeployTab
 import com.tyrnguard.client.ui.ExceptionsTab
+import com.tyrnguard.client.ui.FloatingToolbar
 import com.tyrnguard.client.ui.InfoTab
 import com.tyrnguard.client.ui.LogsTab
 import com.tyrnguard.client.ui.SettingsTab
@@ -139,10 +140,11 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle("system")
-            val dynamicColor by settingsStore.useDynamicColor.collectAsStateWithLifecycle(true)
+            val dynamicColor by settingsStore.useDynamicColor.collectAsStateWithLifecycle(false)
+            val themePalette by settingsStore.themePalette.collectAsStateWithLifecycle("tyrn")
             var showOnboarding by remember { mutableStateOf(isFirstLaunch) }
 
-            WDTTTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
+            WDTTTheme(themeMode = themeMode, dynamicColor = dynamicColor, palette = themePalette) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     MainScreen(settingsStore)
                     
@@ -301,6 +303,9 @@ fun MainScreen(settingsStore: SettingsStore) {
     val pagerState = rememberPagerState(pageCount = { navItems.size })
     val unreadErrors by TunnelManager.unreadErrorCount.collectAsStateWithLifecycle()
     val tunnelRunning by TunnelManager.running.collectAsStateWithLifecycle()
+    val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle("system")
+    val dynamicColor by settingsStore.useDynamicColor.collectAsStateWithLifecycle(false)
+    val themePalette by settingsStore.themePalette.collectAsStateWithLifecycle("tyrn")
     val snackbarHostState = remember { SnackbarHostState() }
 
     val updatePostponeUntil by settingsStore.updatePostponeUntil.collectAsStateWithLifecycle(initialValue = 0L)
@@ -395,6 +400,16 @@ fun MainScreen(settingsStore: SettingsStore) {
             }
         }
 
+        FloatingToolbar(
+            currentTheme = themeMode,
+            onThemeChange = { mode -> scope.launch { settingsStore.saveThemeMode(mode) } },
+            isDynamicColor = dynamicColor,
+            onDynamicColorChange = { enabled -> scope.launch { settingsStore.saveDynamicColor(enabled) } },
+            currentPalette = themePalette,
+            onPaletteChange = { palette -> scope.launch { settingsStore.saveThemePalette(palette) } },
+            modifier = Modifier.matchParentSize()
+        )
+
         pendingRelease?.let { release ->
             AppUpdateDialog(
                 release = release,
@@ -427,6 +442,7 @@ fun MainScreen(settingsStore: SettingsStore) {
                 }
             )
         }
+
     }
 }
 
