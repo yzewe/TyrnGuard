@@ -16,7 +16,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
-import android.util.Base64
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -69,7 +68,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.absoluteValue
@@ -234,24 +232,13 @@ class MainActivity : ComponentActivity() {
         }
         val data = intent.data ?: return
         if (data.scheme == "tyrnguard" && data.host == "config") {
-            val base64Data = data.getQueryParameter("data") ?: return
+            val configText = data.getQueryParameter("data")
+                ?.let { "${TyrnConfigTransfer.LINK_PREFIX}$it" }
+                ?: data.toString()
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
-                    val json = JSONObject(String(Base64.decode(base64Data, Base64.URL_SAFE), Charsets.UTF_8))
-                    settingsStore.save(
-                        peer = json.optString("peer", "").trim(),
-                        vkHashes = json.optString("hashes", "").trim(),
-                        secondaryVkHash = "",
-                        workersPerHash = json.optInt("workers", 24),
-                        protocol = if (json.optBoolean("tcp", false)) "tcp" else "udp",
-                        listenPort = 9000,
-                        sni = ""
-                    )
-                    settingsStore.saveConnectionPassword(json.optString("password", "").trim())
-                    val captchaMode = json.optString("captchaSolveMethod", "manual")
-                    settingsStore.saveCaptchaMode(if (captchaMode == "auto") "rjs" else "wv")
-                    settingsStore.saveCaptchaSolveMethod(captchaMode)
-                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "Импорт успешен", Toast.LENGTH_LONG).show() }
+                    val result = TyrnConfigTransfer.importFromText(settingsStore, configText)
+                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show() }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "Ошибка импорта", Toast.LENGTH_SHORT).show() }
                 }

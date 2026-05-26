@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -53,15 +52,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tyrnguard.client.BuildConfig
 import com.tyrnguard.client.SettingsStore
 import com.tyrnguard.client.TunnelManager
+import com.tyrnguard.client.TyrnConfigTransfer
 import com.tyrnguard.client.fetchLatestReleaseInfo
 import com.tyrnguard.client.isNewerVersion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.UUID
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -107,6 +104,7 @@ fun MainSettingsMenu(onNavigate: (String) -> Unit) {
     val settingsStore = remember { SettingsStore(context) }
     val scope = rememberCoroutineScope()
     val currentPeer by settingsStore.peer.collectAsStateWithLifecycle("")
+    var showExportDialog by rememberSaveable { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SettingsHeroPanel(
@@ -124,42 +122,33 @@ fun MainSettingsMenu(onNavigate: (String) -> Unit) {
         MenuCategoryItem("Интерфейс", "Тема, палитра и динамические цвета", Icons.Default.Palette) { onNavigate("interface") }
         
         CategoryCard("Синхронизация", Icons.Default.Share) {
-            Text("Импорт берёт конфигурацию из буфера обмена, экспорт отправляет выбранный сервер ссылкой.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
+            Text("Умный импорт понимает старые ссылки, новые пакеты настроек и сырой JSON. Экспорт можно сделать целиком или только нужной частью.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp),
                     onClick = {
                         val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val text = cb.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-                        if (text.contains("tyrnguard://config?data=")) {
+                        if (text.isBlank()) {
+                            Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        scope.launch {
                             try {
-                                val b64Data = text.substringAfter("data=")
-                                val json = JSONObject(String(Base64.decode(b64Data, Base64.URL_SAFE)))
-                                scope.launch { addServerToStoreDirect(context, settingsStore, json) }
-                            } catch (e: Exception) { Toast.makeText(context, "Ошибка чтения ссылки", Toast.LENGTH_SHORT).show() }
-                        } else Toast.makeText(context, "Ссылка не найдена в буфере", Toast.LENGTH_SHORT).show()
+                                val result = withContext(Dispatchers.IO) { TyrnConfigTransfer.importFromText(settingsStore, text) }
+                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                            } catch (_: Exception) {
+                                Toast.makeText(context, "Конфиг не найден или повреждён", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
                 ) {
-                    Icon(Icons.Default.ContentPasteGo, null); Spacer(Modifier.width(8.dp)); Text("Импорт", fontSize = 16.sp)
+                    Icon(Icons.Default.ContentPasteGo, null); Spacer(Modifier.width(8.dp)); Text("Умный импорт", fontSize = 15.sp)
                 }
 
                 FilledTonalButton(
                     modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp),
-                    onClick = {
-                        scope.launch {
-                            val serversJson = settingsStore.savedServersJson.first()
-                            if (currentPeer.isBlank() || serversJson.isBlank()) { 
-                                Toast.makeText(context, "Сначала выберите сервер на главном экране", Toast.LENGTH_SHORT).show(); return@launch
-                            }
-                            val servers = JSONArray(serversJson)
-                            var activeObj: JSONObject? = null
-                            for (i in 0 until servers.length()) { if (servers.getJSONObject(i).optString("ip") == currentPeer) { activeObj = servers.getJSONObject(i); break } }
-                            if (activeObj == null) { Toast.makeText(context, "Активный сервер не найден", Toast.LENGTH_SHORT).show(); return@launch }
-                            
-                            val b64 = Base64.encodeToString(activeObj.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)
-                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Конфигурация TyrnGuard:\n\ntyrnguard://config?data=$b64") }, "Поделиться конфигурацией"))
-                        }
-                    }
+                    onClick = { showExportDialog = true }
                 ) {
                     Icon(Icons.Default.IosShare, null); Spacer(Modifier.width(8.dp)); Text("Экспорт", fontSize = 16.sp)
                 }
@@ -168,6 +157,35 @@ fun MainSettingsMenu(onNavigate: (String) -> Unit) {
 
         MenuCategoryItem("О приложении", "Версия, Обновления, GitHub", Icons.Default.Info) { onNavigate("about") }
         Spacer(Modifier.height(32.dp))
+    }
+
+    if (showExportDialog) {
+        ExportConfigDialog(
+            onDismiss = { showExportDialog = false },
+            onExport = { kind, title ->
+                showExportDialog = false
+                scope.launch {
+                    try {
+                        val link = withContext(Dispatchers.IO) { TyrnConfigTransfer.buildExportLink(settingsStore, kind) }
+                        val shareText = "Конфигурация TyrnGuard ($title):\n\n$link"
+                        val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cb.setPrimaryClip(ClipData.newPlainText("TyrnGuard config", shareText))
+                        Toast.makeText(context, "Ссылка скопирована в буфер", Toast.LENGTH_SHORT).show()
+                        context.startActivity(
+                            Intent.createChooser(
+                                Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, shareText)
+                                },
+                                "Поделиться конфигурацией"
+                            )
+                        )
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "Не удалось собрать экспорт", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
     }
 }
 
@@ -674,23 +692,6 @@ private fun buildSupportReport(): String {
     }.trim()
 }
 
-suspend fun addServerToStoreDirect(context: Context, settingsStore: SettingsStore, json: JSONObject) {
-    val ip = json.optString("ip", "").trim()
-    val name = json.optString("name", "Импортированный сервер").trim()
-    val pass = json.optString("password", "").trim()
-    if (ip.isBlank()) return
-
-    val currentArray = try { JSONArray(settingsStore.savedServersJson.first()) } catch (e: Exception) { JSONArray() }
-    var existsIdx = -1
-    for (i in 0 until currentArray.length()) { if (currentArray.getJSONObject(i).optString("ip").trim() == ip) { existsIdx = i; break } }
-
-    val newObj = JSONObject().apply { put("id", if (existsIdx != -1) currentArray.getJSONObject(existsIdx).getString("id") else UUID.randomUUID().toString()); put("name", name); put("ip", ip); put("password", pass) }
-    if (existsIdx != -1) currentArray.put(existsIdx, newObj) else currentArray.put(newObj)
-    settingsStore.saveServersList(currentArray.toString())
-
-    withContext(Dispatchers.Main) { Toast.makeText(context, "Сервер '$name' ${if (existsIdx != -1) "обновлен" else "добавлен"}", Toast.LENGTH_SHORT).show() }
-}
-
 @Composable
 fun ImportantInfoDialog(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
@@ -705,6 +706,48 @@ fun ImportantInfoDialog(onDismiss: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun ExportConfigDialog(onDismiss: () -> Unit, onExport: (kind: String, title: String) -> Unit) {
+    val options = listOf(
+        ExportConfigOption(TyrnConfigTransfer.KIND_ALL, "Всё сразу", "Серверы, сеть, производительность, интерфейс и исключения", Icons.Default.Inventory2),
+        ExportConfigOption(TyrnConfigTransfer.KIND_SERVERS, "Все серверы", "Список серверов, активный сервер и пароль подключения", Icons.Default.Dns),
+        ExportConfigOption(TyrnConfigTransfer.KIND_ACTIVE_SERVER, "Активный сервер", "Только выбранный сервер для быстрого переноса", Icons.Default.RadioButtonChecked),
+        ExportConfigOption(TyrnConfigTransfer.KIND_NETWORK, "Сеть", "Протокол, порты, SNI, MTU и DNS", Icons.Default.Language),
+        ExportConfigOption(TyrnConfigTransfer.KIND_PERFORMANCE, "Производительность", "VK-хеши, потоки и режим капчи", Icons.Default.Speed),
+        ExportConfigOption(TyrnConfigTransfer.KIND_INTERFACE, "Интерфейс", "Тема, динамические цвета и палитра", Icons.Default.Palette)
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface) {
+            Column(modifier = Modifier.padding(22.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(48.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.IosShare, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Экспорт конфигурации", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                        Text("Выберите, что положить в ссылку", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Закрыть") }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                options.forEach { option ->
+                    SettingClickRow(option.icon, option.title, option.subtitle) { onExport(option.kind, option.title) }
+                }
+            }
+        }
+    }
+}
+
+private data class ExportConfigOption(
+    val kind: String,
+    val title: String,
+    val subtitle: String,
+    val icon: ImageVector
+)
 
 @Composable
 private fun SettingsHeroPanel(

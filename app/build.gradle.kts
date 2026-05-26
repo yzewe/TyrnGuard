@@ -13,8 +13,8 @@ android {
         applicationId = "com.tyrnguard.client"
         minSdk = 29
         targetSdk = 35
-        versionCode = 119
-        versionName = "1.1.9"
+        versionCode = 120
+        versionName = "1.1.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
